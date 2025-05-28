@@ -2,6 +2,7 @@ import { Module, Global } from '@nestjs/common';
 import { REDIS_CLIENT, REDIS_OPTIONS } from './redis.constants';
 import { CustomRedisOptions, RedisTcpOptions } from './redis.interface';
 import Redis from 'ioredis';
+import { RedisService } from './redis.service';
 
 @Global()
 @Module({
@@ -14,9 +15,9 @@ import Redis from 'ioredis';
           host: 'localhost',
           port: 6379,
           tls: false,
-          rejectUnauthorized: false
-        } as RedisTcpOptions
-      } as CustomRedisOptions
+          rejectUnauthorized: false,
+        } as RedisTcpOptions,
+      } as CustomRedisOptions,
     },
     {
       provide: REDIS_CLIENT,
@@ -24,9 +25,10 @@ import Redis from 'ioredis';
         const client = new Redis(options.url || 'redis://localhost:6379');
         return client;
       },
-      inject: [REDIS_OPTIONS]
-    }
+      inject: [REDIS_OPTIONS],
+    },
+    RedisService,
   ],
-  exports: [REDIS_CLIENT]
+  exports: [REDIS_CLIENT, RedisService],
 })
 export class RedisModule {}

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Group Chat</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: auto; }
+    #messages { border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: scroll; margin-bottom: 10px; }
+    #messages div { margin-bottom: 6px; }
+    input, button { padding: 8px; margin-top: 4px; width: 100%; }
+  </style>
+</head>
+<body>
+
+  <h2>Group Chat</h2>
+
+  <label for="groupId">Group ID:</label>
+  <input id="groupId" placeholder="Enter groupId (Mongo _id)" />
+
+  <label for="userId">Your User ID:</label>
+  <input id="userId" placeholder="Enter your userId (Mongo _id)" />
+
+  <div id="messages"></div>
+
+  <input id="messageInput" placeholder="Type a message..." />
+  <button onclick="sendMessage()">Send</button>
+
+  <script>
+    const socket = io('http://localhost:3000', {
+      transports: ['websocket'],
+    });
+
+    const messagesDiv = document.getElementById('messages');
+
+    socket.on('connect', () => {
+      console.log('Connected to WebSocket server');
+    });
+
+    socket.on('receive_group_message', (message) => {
+      const div = document.createElement('div');
+      div.textContent = `${message.sender}: ${message.content}`;
+      messagesDiv.appendChild(div);
+    });
+
+    function sendMessage() {
+      const groupId = document.getElementById('groupId').value.trim();
+      const userId = document.getElementById('userId').value.trim();
+      const content = document.getElementById('messageInput').value.trim();
+
+      if (!groupId || !userId || !content) {
+        alert('Fill all fields!');
+        return;
+      }
+
+      socket.emit('send_group_message', {
+        groupId,
+        senderId: userId,
+        content,
+      });
+
+      document.getElementById('messageInput').value = '';
+    }
+  </script>
+
+</body>
+</html>

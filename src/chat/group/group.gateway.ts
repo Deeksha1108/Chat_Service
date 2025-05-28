@@ -1,115 +1,83 @@
 import {
-  WebSocketGateway,
   SubscribeMessage,
+  WebSocketGateway,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
   MessageBody,
   ConnectedSocket,
-  OnGatewayInit,
-  WebSocketServer,
 } from '@nestjs/websockets';
-import { Server, Socket } from 'socket.io';
-import { SocketEvents } from '../common/constants/socket-events';
-import { GroupChatService } from './group.service';
-import { RedisService } from '../redis/redis.service';
+import { Socket, Server } from 'socket.io';
+import { GroupService } from './group.service';
 import { SendGroupMessageDto } from './dto/send-group-message.dto';
 
 @WebSocketGateway({
-  namespace: '/group',
   cors: {
-    origin: '*',
-    credentials: true,
+    origin: '*', 
   },
 })
-export class GroupChatGateway implements OnGatewayInit {
-  @WebSocketServer() server: Server;
-  constructor(
-    private readonly groupService: GroupChatService,
-    private readonly redisService: RedisService,
-  ) {}
+export class GroupGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  constructor(private readonly groupService: GroupService) {}
 
-  afterInit() {
-    this.redisService.subscribe(
-      SocketEvents.PUBSUB.GROUP_MESSAGES,
-      (message: string) => {
-        try {
-          const parsedMessage: GroupMessage = JSON.parse(message);
-          this.handleCrossServerMessage(parsedMessage);
-        } catch (error) {
-          console.error('Error parsing group message:', error);
-        }
-      },
+  private connectedUsers: Map<string, string> = new Map(); // socket.id -> userId
+
+  handleConnection(client: Socket) {
+    console.log(`Client connected: ${client.id}`);
+  }
+
+  handleDisconnect(client: Socket) {
+    console.log(`Client disconnected: ${client.id}`);
+    this.connectedUsers.delete(client.id);
+  }
+
+  @SubscribeMessage('joinGroup')
+  handleJoinGroup(
+    @MessageBody() data: { groupId: string; userId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    client.join(data.groupId);
+    this.connectedUsers.set(client.id, data.userId);
+    client.to(data.groupId).emit('userJoined', {
+      userId: data.userId,
+      groupId: data.groupId,
+    });
+  }
+
+  @SubscribeMessage('leaveGroup')
+  handleLeaveGroup(
+    @MessageBody() data: { groupId: string; userId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    client.leave(data.groupId);
+    this.connectedUsers.delete(client.id);
+    client.to(data.groupId).emit('userLeft', {
+      userId: data.userId,
+      groupId: data.groupId,
+    });
+  }
+
+  @SubscribeMessage('groupTyping')
+  handleTyping(
+    @MessageBody() data: { groupId: string; userId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    client.to(data.groupId).emit('typing', {
+      userId: data.userId,
+      groupId: data.groupId,
+    });
+  }
+
+  @SubscribeMessage('sendGroupMessage')
+  async handleSendMessage(
+    @MessageBody() dto: SendGroupMessageDto & { groupId: string },
+    @ConnectedSocket() client: Socket,
+  ) {
+    const savedMessage = await this.groupService.sendGroupMessage(
+      dto.groupId,
+      dto,
     );
-  }
 
-  private handleCrossServerMessage(message: GroupMessage) {
-    this.server.to(message.groupId).emit(SocketEvents.GROUP.MESSAGE, message);
-  }
-
-  @SubscribeMessage(SocketEvents.GROUP.JOIN)
-  async handleJoinGroup(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() { groupId, userId }: { groupId: string; userId: string },
-  ) {
-    try {
-      await this.groupService.validateGroupMember(groupId, userId);
-      client.join(groupId);
-      client.emit(SocketEvents.GROUP.JOIN, { success: true });
-
-      this.redisService.publish(SocketEvents.PUBSUB.GROUP_MESSAGES, {
-        type: 'member-joined',
-        groupId,
-        userId,
-      });
-    } catch (error) {
-      client.emit(SocketEvents.ERROR, {
-        event: SocketEvents.GROUP.JOIN,
-        error: error.message,
-      });
-    }
-  }
-
-  @SubscribeMessage(SocketEvents.GROUP.MESSAGE)
-  async handleMessage(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() payload: SendGroupMessageDto,
-  ) {
-    try {
-      const message = await this.groupService.saveGroupMessage(payload);
-
-      client.to(payload.groupId).emit(SocketEvents.GROUP.MESSAGE, message);
-
-      this.redisService.publish(SocketEvents.PUBSUB.GROUP_MESSAGES, message);
-
-      return { status: 'delivered', timestamp: new Date() };
-    } catch (error) {
-      client.emit(SocketEvents.ERROR, {
-        event: SocketEvents.GROUP.MESSAGE,
-        error: error.message,
-      });
-      return { status: 'failed', error: error.message };
-    }
-  }
-
-  @SubscribeMessage(SocketEvents.GROUP.LEAVE)
-  async handleLeaveGroup(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() { groupId, userId }: { groupId: string; userId: string },
-  ) {
-    try {
-      await this.groupService.removeParticipant(groupId, userId);
-      client.leave(groupId);
-
-      this.redisService.publish(SocketEvents.PUBSUB.GROUP_MESSAGES, {
-        type: 'member-left',
-        groupId,
-        userId,
-      });
-
-      client.emit(SocketEvents.GROUP.LEAVE, { success: true });
-    } catch (error) {
-      client.emit(SocketEvents.ERROR, {
-        event: SocketEvents.GROUP.LEAVE,
-        error: error.message,
-      });
-    }
+    // Emit to all users in the group
+    client.to(dto.groupId).emit('newGroupMessage', savedMessage);
+    client.emit('newGroupMessage', savedMessage); // Send back to sender too
   }
 }

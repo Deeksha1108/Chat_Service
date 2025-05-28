@@ -6,69 +6,70 @@ import {
   MessageBody,
   ConnectedSocket,
   OnGatewayInit,
+  WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { ChatService } from './private.service';
-import { Inject, Logger } from '@nestjs/common';
-import { RedisClientType } from 'redis';
+import { Logger } from '@nestjs/common';
 import { CreateMessageDto } from './dto/create-message.dto';
-import { REDIS_CLIENT } from 'src/chat/redis/redis.constants';
+import { RedisService } from '../redis/redis.service';
+import { Types } from 'mongoose';
 
 @WebSocketGateway({ namespace: 'chat' })
 export class ChatGateway
   implements OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit
 {
-  private server: Server;
+  @WebSocketServer()
+  server: Server;
   private readonly logger = new Logger(ChatGateway.name);
 
+  private connectedUsers: Map<string, string> = new Map();
+
   constructor(
-    private chatService: ChatService,
-    @Inject(REDIS_CLIENT) private redisClient: RedisClientType,
+    private readonly chatService: ChatService,
+    private readonly redisService: RedisService,
   ) {}
 
   afterInit(server: Server) {
-    this.server = server;
     this.logger.log('WebSocket server initialized');
-    this.logger.debug(`this.server.sockets: ${!!this.server.sockets}`);
   }
 
   async handleConnection(@ConnectedSocket() socket: Socket) {
-    const userId = socket.handshake.query.userId as string;
+    const userId = this.getUserIdFromSocket(socket);
+
     if (!userId) {
       this.logger.warn(
         `Socket ${socket.id} tried to connect without userId, disconnecting.`,
       );
       return socket.disconnect();
     }
+    await this.redisService.setUserSocket(userId, socket.id);
+    if (!socket.rooms.has(userId)) {
+      socket.join(userId);
+      this.logger.log(`Socket ${socket.id} joined room ${userId}`);
+    } else {
+      this.logger.log(`Socket ${socket.id} already in room ${userId}`);
+    }
 
-    await this.redisClient.sAdd(`user:${userId}:sockets`, socket.id);
-    this.logger.log(`User ${userId} connected with socket ${socket.id}`);
-
-    const conversations = await this.chatService.getConversations(userId);
-    conversations.forEach((conv) => {
-      socket.join(conv._id.toString());
-      this.logger.log(
-        `Socket ${socket.id} joined conversation room ${conv._id.toString()}`,
-      );
-    });
-
-    const offlineMessagesKey = `user:${userId}:offlineMessages`;
-    const messages = await this.redisClient.lRange(offlineMessagesKey, 0, -1);
-    if (messages.length > 0) {
-      messages.forEach((msg) => {
+    const offlineMessages = await this.redisService.getOfflineMessages(userId);
+    if (offlineMessages.length > 0) {
+      for (const msg of offlineMessages) {
         socket.emit('receiveMessage', JSON.parse(msg));
-      });
-      await this.redisClient.del(offlineMessagesKey);
+      }
+      await this.redisService.clearOfflineMessages(userId);
       this.logger.log(
-        `Delivered ${messages.length} offline messages to ${userId}`,
+        `Delivered ${offlineMessages.length} offline messages to ${userId}`,
       );
     }
   }
 
   async handleDisconnect(@ConnectedSocket() socket: Socket) {
-    const userId = socket.handshake.query.userId as string;
-    if (!userId) return;
-    await this.redisClient.sRem(`user:${userId}:sockets`, socket.id);
+    const userId = socket.handshake.query.userId?.toString();
+    if (!userId) {
+      this.logger.warn(`Socket ${socket.id} disconnected without valid userId`);
+      return;
+    }
+    await this.redisService.removeUserSocket(userId, socket.id);
     this.logger.log(`User ${userId} disconnected from socket ${socket.id}`);
   }
 
@@ -77,68 +78,67 @@ export class ChatGateway
     @MessageBody() { receiverId, content }: CreateMessageDto,
     @ConnectedSocket() socket: Socket,
   ) {
-    const senderId = socket.handshake.query.userId as string;
-    this.logger.log(`User ${senderId} is sending message to ${receiverId}`);
-
-    const conversation = await this.chatService.findOrCreateConversation(
-      senderId,
-      receiverId,
-    );
-
-    const participants = [senderId, receiverId];
-    for (const participantId of participants) {
-      const socketIds = await this.redisClient.sMembers(
-        `user:${participantId}:sockets`,
-      );
-      for (const socketId of socketIds) {
-        let participantSocket: Socket | undefined;
-        try {
-          participantSocket = this.server.of('/').sockets.get(socketId);
-        } catch (error) {
-          this.logger.error(`Failed to get socket ${socketId}`, error);
-        }
-        if (
-          participantSocket &&
-          !participantSocket.rooms.has(conversation._id.toString())
-        ) {
-          participantSocket.join(conversation._id.toString());
-          this.logger.log(
-            `Socket ${socketId} joined room ${conversation._id.toString()}`,
-          );
-        }
-      }
+    const senderId = this.getUserIdFromSocket(socket);
+    if (!senderId) {
+      this.logger.warn(`Invalid sender ID from socket ${socket.id}`);
+      return;
     }
 
-    const message = await this.chatService.createMessage(
-      senderId,
-      conversation._id.toString(),
-      content,
-    );
-
-    socket.emit('messageSent', { status: 'success', message });
-
-    const receiverSockets = await this.redisClient.sMembers(
-      `user:${receiverId}:sockets`,
-    );
-
-    if (receiverSockets.length === 0) {
-      await this.redisClient.rPush(
-        `user:${receiverId}:offlineMessages`,
-        JSON.stringify(message),
+    try {
+      const conversation = await this.chatService.findOrCreateConversation(
+        senderId,
+        receiverId,
       );
-      this.logger.log(`Receiver ${receiverId} offline, message queued.`);
-    } else {
-      for (const receiverSocketId of receiverSockets) {
-        const receiverSocket =
-          this.server.sockets.sockets.get(receiverSocketId);
-        if (receiverSocket) {
-          receiverSocket.emit('receiveMessage', message);
-          this.logger.log(
-            `Sent message to receiver socket ${receiverSocketId}`,
-          );
+
+      let message = await this.chatService.createMessage(
+        senderId,
+        receiverId,
+        conversation._id.toString(),
+        content,
+      );
+
+      socket.emit('messageSent', { status: 'success', message });
+
+      const receiverSockets =
+        await this.redisService.getUserSockets(receiverId);
+
+      if (receiverSockets.length === 0) {
+        await this.redisService.addOfflineMessage(
+          receiverId,
+          JSON.stringify(message),
+        );
+        this.logger.log(`Receiver ${receiverId} offline. Message queued.`);
+      } else {
+        const updatedMessage = await this.chatService.markAsDelivered(
+          (message as any)._id.toString(),
+        );
+
+        if (!updatedMessage) {
+          this.logger.warn(`Message not found while marking as delivered.`);
+          return;
         }
+
+        message = updatedMessage;
+
+        this.server.to(receiverId).emit('receiveMessage', message);
+        this.logger.log(`Message sent to receiver ${receiverId}`);
       }
+    } catch (error) {
+      this.logger.error(
+        `Error handling message from ${senderId} to ${receiverId}: ${error.message}`,
+      );
+      socket.emit('messageSent', {
+        status: 'error',
+        error: 'Message delivery failed',
+      });
     }
+  }
+
+  // Utility method placed outside the handler
+  private getUserIdFromSocket(socket: Socket): string | null {
+    const userId = socket.handshake.query.userId?.toString();
+    // return userId && Types.ObjectId.isValid(userId) ? userId : null;
+    return userId || null;
   }
 
   @SubscribeMessage('messageDelivered')
@@ -146,9 +146,42 @@ export class ChatGateway
     @MessageBody() { messageId }: { messageId: string },
     @ConnectedSocket() socket: Socket,
   ) {
-    await this.chatService.markAsDelivered(messageId);
-    this.logger.log(`Message ${messageId} marked as delivered`);
-    socket.emit('messageDeliveryAck', { messageId, status: 'delivered' });
+    const userId = socket.handshake.query.userId?.toString();
+
+    if (!userId || !messageId) {
+      this.logger.warn(
+        `Missing userId or messageId in delivery event. Socket: ${socket.id}`,
+      );
+      return;
+    }
+
+    try {
+      const updatedMessage = await this.chatService.markAsDelivered(messageId);
+
+      if (!updatedMessage) {
+        this.logger.warn(
+          `Message ${messageId} not found while marking as delivered`,
+        );
+        return;
+      }
+
+      this.server
+        .to(updatedMessage.sender.toString())
+        .emit('messageDeliveredAck', {
+          messageId,
+        });
+
+      socket.emit('messageDeliveryAck', { messageId, status: 'delivered' });
+
+      this.logger.log(
+        `Message ${messageId} marked as delivered by user ${userId}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error marking message ${messageId} as delivered: ${error.message}`,
+      );
+      socket.emit('messageDeliveryAck', { messageId, status: 'error' });
+    }
   }
 
   @SubscribeMessage('readMessage')
@@ -156,8 +189,24 @@ export class ChatGateway
     @MessageBody() { messageId }: { messageId: string },
     @ConnectedSocket() socket: Socket,
   ) {
-    await this.chatService.markAsRead(messageId);
-    this.logger.log(`Message ${messageId} marked as read`);
-    socket.emit('messageReadAck', { messageId, status: 'read' });
+    const userId = this.getUserIdFromSocket(socket);
+    if (!userId) return;
+    try {
+      const message = await this.chatService.markAsRead(messageId);
+
+      if (!message) {
+        this.logger.warn(
+          `Message ${messageId} not found while marking as read.`,
+        );
+        return;
+      }
+
+      this.server
+        .to(message.sender.toString())
+        .emit('messageReadAck', { messageId });
+      this.logger.log(`Message ${messageId} marked as read`);
+    } catch (error) {
+      this.logger.error(`Error marking message read: ${error.message}`);
+    }
   }
 }

@@ -1,114 +1,64 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { Conversation } from '../common/schemas/conversation.schema';
-import { CreateGroupChatDto } from './dto/create-group-chat.dto';
+import { CreateGroupDto } from './dto/create-group.dto';
 import { SendGroupMessageDto } from './dto/send-group-message.dto';
-import { Message } from '../private/schema/message.schema';
-import { MessageDocument } from '../common/schemas/message.schema';
+import { Group, GroupDocument } from './schema/group.schema';
+import {
+  GroupMessage,
+  GroupMessageDocument,
+} from './schema/group-message.schema';
 
 @Injectable()
-export class GroupChatService {
+export class GroupService {
   constructor(
-    @InjectModel(Conversation.name)
-    private readonly conversationModel: Model<Conversation>,
-    @InjectModel(Message.name)
-    private readonly messageModel: Model<MessageDocument>,
+    @InjectModel(Group.name) private groupModel: Model<GroupDocument>,
+    @InjectModel(GroupMessage.name)
+    private groupMessageModel: Model<GroupMessageDocument>,
   ) {}
 
-  async createGroup(dto: CreateGroupChatDto) {
-    const group = await this.conversationModel.create({
-      createdBy: dto.adminId,
-      participants: dto.participants,
-      isGroup: true,
-      groupName: dto.name,
-      groupAdmin: dto.adminId,
-      messages: [],
-    });
-
-    return {
-      message: 'Group created successfully',
-      groupId: group._id,
-      groupName: group.groupName,
-    };
+  async createGroup(createGroupDto: CreateGroupDto): Promise<Group> {
+    const createdGroup = new this.groupModel(createGroupDto);
+    return createdGroup.save();
   }
 
-  async addParticipant(groupId: string, userId: string) {
-    const group = await this.conversationModel.findById(groupId);
-    if (!group || !group.isGroup) {
+  async sendGroupMessage(
+    groupId: string,
+    sendGroupMessageDto: SendGroupMessageDto,
+  ): Promise<GroupMessage> {
+    const { senderId, content } = sendGroupMessageDto;
+
+    // Check if group exists
+    const group = await this.groupModel.findById(groupId).exec();
+    if (!group) {
       throw new NotFoundException('Group not found');
     }
 
-    if (group.participants.includes(userId)) {
-      throw new BadRequestException('User already in group');
-    }
-
-    group.participants.push(userId);
-    await group.save();
-
-    return { message: 'User added to group', groupId };
-  }
-
-  async removeParticipant(groupId: string, userId: string) {
-    const group = await this.conversationModel.findById(groupId);
-    if (!group || !group.isGroup) {
-      throw new NotFoundException('Group not found');
-    }
-
-    group.participants = group.participants.filter(
-      (participantId: string) => participantId.toString() !== userId,
-    );
-
-    await group.save();
-
-    return { message: 'User removed from group', groupId };
-  }
-
-  async validateGroupMember(groupId: string, userId: string) {
-    const group = await this.conversationModel.findById(groupId);
-    if (!group || !group.isGroup) {
-      throw new NotFoundException('Group not found');
-    }
-
-    const isMember = group.participants.some(
-      (id: string) => id.toString() === userId,
-    );
-
-    if (!isMember) {
-      throw new BadRequestException('User is not a member of this group');
-    }
-
-    return true;
-  }
-
-  async saveGroupMessage(dto: SendGroupMessageDto) {
-    const { groupId, content, senderId } = dto;
-    const group = await this.conversationModel.findById(groupId);
-    if (!group || !group.isGroup) {
-      throw new NotFoundException('Group not found');
-    }
-
-    const message = await this.messageModel.create({
+    const groupMessage = new this.groupMessageModel({
       sender: new Types.ObjectId(senderId),
+      group: new Types.ObjectId(groupId),
       content,
-      conversationId: new Types.ObjectId(groupId),
-      delivered: false,
-      read: false,
+      timestamp: new Date(),
     });
 
-    group.messages.push(message._id as Types.ObjectId);
-    await group.save();
+    return groupMessage.save();
+  }
 
-    return {
-      groupId,
-      senderId,
-      content,
-      timestamp: message.createdAt,
-      messageId: message._id,
-    };
+  async getGroupMessages(groupId: string): Promise<GroupMessage[]> {
+    // Confirm group exists
+    const group = await this.groupModel.findById(groupId).exec();
+    if (!group) {
+      throw new NotFoundException('Group not found');
+    }
+
+    return this.groupMessageModel
+      .find({ group: groupId })
+      .sort({ timestamp: 1 })
+      .exec();
+  }
+
+  async getGroupsByUser(userId: string): Promise<Group[]> {
+    // Find groups where user is a member
+    return this.groupModel.find({ members: userId }).exec();
   }
 }

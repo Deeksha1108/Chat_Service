@@ -9,11 +9,13 @@ export class ChatService {
   constructor(
     @InjectModel(Message.name) private messageModel: Model<Message>,
     @InjectModel(Conversation.name)
-    private conversationModel: Model<Conversation>,
+    private readonly conversationModel: Model<Conversation>,
   ) {}
 
   async findOrCreateConversation(user1: string, user2: string) {
-    const participants = [user1, user2].sort();
+    const participants = [user1, user2]
+      .map((id) => new Types.ObjectId(id))
+      .sort();
     let conv = await this.conversationModel.findOne({ participants });
     if (!conv) {
       conv = new this.conversationModel({ participants });
@@ -22,9 +24,21 @@ export class ChatService {
     return conv;
   }
 
-  async createMessage(sender: string, conversationId: string, content: string) {
+  async createMessage(
+    senderId: string,
+    receiverId: string,
+    conversationId: string,
+    content: string,
+  ) {
+    if (
+      !Types.ObjectId.isValid(senderId) ||
+      !Types.ObjectId.isValid(conversationId)
+    ) {
+      throw new Error('Invalid sender or conversation ID');
+    }
     const message = new this.messageModel({
-      sender: new Types.ObjectId(sender),
+      sender: new Types.ObjectId(senderId),
+      receiver: new Types.ObjectId(receiverId),
       conversationId: new Types.ObjectId(conversationId),
       content,
       delivered: false,
@@ -34,25 +48,42 @@ export class ChatService {
   }
 
   async getConversations(userId: string) {
-    return this.conversationModel.find({ participants: userId });
+    return this.conversationModel
+      .find({
+        participants: new Types.ObjectId(userId),
+      })
+      .exec();
   }
+
+  async saveMessage(data: {
+    senderId: string;
+    receiverId: string;
+    content: string;
+    conversationId: string;
+  }) {
+    return this.messageModel.create(data);
+  }
+
 
   async getMessages(conversationId: string) {
-    return this.messageModel.find({ conversationId }).sort({ createdAt: 1 });
+    return this.messageModel
+      .find({ conversationId: new Types.ObjectId(conversationId) })
+      .sort({ createdAt: 1 });
   }
 
-  async markAsDelivered(messageId: string) {
-    return this.messageModel.findByIdAndUpdate(
-      messageId,
-      { delivered: true },
-      { new: true },
-    );
-  }
+async markAsDelivered(messageId: string) {
+  return this.messageModel.findByIdAndUpdate(
+    messageId,
+    { isDelivered: true, deliveredAt: new Date() },
+    { new: true },
+  );
+}
+
 
   async markAsRead(messageId: string) {
     return this.messageModel.findByIdAndUpdate(
       messageId,
-      { read: true },
+      { read: true, readAt: new Date() },
       { new: true },
     );
   }

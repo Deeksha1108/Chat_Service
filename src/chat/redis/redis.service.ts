@@ -1,4 +1,9 @@
-import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from './redis.constants';
 
@@ -17,21 +22,35 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy() {
-    await this.client.quit();
-    await this.pubClient.quit();
-    await this.subClient.quit();
+    await Promise.all([
+      this.client.quit(),
+      this.pubClient.quit(),
+      this.subClient.quit(),
+    ]);
   }
 
   async setUserSocket(userId: string, socketId: string): Promise<void> {
-    await this.client.set(`user:${userId}`, socketId);
+    await this.client.sadd(`user:${userId}:sockets`, socketId);
   }
 
-  async getUserSocket(userId: string): Promise<string | null> {
-    return this.client.get(`user:${userId}`);
+  async getUserSockets(userId: string): Promise<string[]> {
+    return this.client.smembers(`user:${userId}:sockets`);
   }
 
-  async removeUserSocket(userId: string): Promise<void> {
-    await this.client.del(`user:${userId}`);
+  async removeUserSocket(userId: string, socketId: string): Promise<void> {
+    await this.client.srem(`user:${userId}:sockets`, socketId);
+  }
+
+  async addOfflineMessage(userId: string, message: string): Promise<number> {
+    return this.client.rpush(`user:${userId}:offlineMessages`, message);
+  }
+
+  async getOfflineMessages(userId: string): Promise<string[]> {
+    return this.client.lrange(`user:${userId}:offlineMessages`, 0, -1);
+  }
+
+  async clearOfflineMessages(userId: string): Promise<number> {
+    return this.client.del(`user:${userId}:offlineMessages`);
   }
 
   async publish(channel: string, message: any): Promise<number> {
@@ -39,14 +58,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async subscribe(channel: string, callback: (message: string) => void) {
+    await this.subClient.subscribe(channel);
     this.subClient.on('message', (ch, msg) => {
       if (ch === channel) callback(msg);
-    });
-  }
-
-  async onMessage(channel: string, callback: (message: any) => void) {
-    this.subClient.on('message', (ch, msg) => {
-      if (ch === channel) callback(JSON.parse(msg));
     });
   }
 }

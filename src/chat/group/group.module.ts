@@ -1,20 +1,19 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import { Conversation, ConversationSchema } from '../common/schemas/conversation.schema';
-import { GroupChatController } from './group.controller';
-import { GroupChatGateway } from './group.gateway';
-import { GroupChatService } from './group.service';
-import { RedisModule } from '../redis/redis.module';
-import { Message, MessageSchema } from '../common/schemas/message.schema';
+import { GroupService } from './group.service';
+import { GroupController } from './group.controller';
+import { Group, GroupSchema } from './schema/group.schema';
+import { GroupMessage, GroupMessageSchema } from './schema/group-message.schema';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
-      { name: Conversation.name, schema: ConversationSchema }, {name: Message.name, schema: MessageSchema },
+      { name: Group.name, schema: GroupSchema },
+      { name: GroupMessage.name, schema: GroupMessageSchema },
     ]),
-    RedisModule
   ],
-  controllers: [GroupChatController],
-  providers: [GroupChatService, GroupChatGateway]
+  providers: [GroupService],
+  controllers: [GroupController],
+  // exports: [GroupService],
 })
-export class GroupChatModule {}
+export class GroupModule {}
