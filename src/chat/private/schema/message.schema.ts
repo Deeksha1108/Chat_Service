@@ -10,7 +10,7 @@ export class Message extends Document {
   receiver: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'Conversation', required: true })
-  conversationId: Types.ObjectId;
+  roomId: Types.ObjectId;
 
   @Prop({ required: true })
   content: string;

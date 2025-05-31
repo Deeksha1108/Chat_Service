@@ -14,11 +14,11 @@ export class ChatController {
     return this.chatService.getConversations(userId);
   }
 
-  @Get('messages/:conversationId')
-  getMessages(@Param('conversationId') conversationId: string) {
-    if (!isValidObjectId(conversationId)) {
+  @Get('messages/:roomId')
+  getMessages(@Param('roomId') roomId: string) {
+    if (!isValidObjectId(roomId)) {
       throw new BadRequestException('Invalid conversation ID');
     }
-    return this.chatService.getMessages(conversationId);
+    return this.chatService.getMessages(roomId);
   }
 }

@@ -58,7 +58,7 @@
         userId = document.getElementById('userIdInput').value;
         if (!userId) return alert('Please enter userId first.');
 
-        socket = io('http://localhost:3000/chat', {
+        socket = io('http://localhost:3001/chat', {
           query: { userId },
           transports: ['websocket'],
         });

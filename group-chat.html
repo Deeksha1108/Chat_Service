@@ -1,67 +1,167 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Group Chat</title>
-  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  <style>
-    body { font-family: sans-serif; max-width: 600px; margin: auto; }
-    #messages { border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: scroll; margin-bottom: 10px; }
-    #messages div { margin-bottom: 6px; }
-    input, button { padding: 8px; margin-top: 4px; width: 100%; }
-  </style>
-</head>
-<body>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Group Chat</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  </head>
+  <body style="font-family: sans-serif; padding: 20px">
+    <h2>👥 Group Chat UI</h2>
 
-  <h2>Group Chat</h2>
+    <label>Your User ID: </label>
+    <input type="text" id="userIdInput" placeholder="Enter your userId" />
+    <button onclick="generateUserId()">Random ID</button>
+    <button onclick="connect()">Join Chat</button>
 
-  <label for="groupId">Group ID:</label>
-  <input id="groupId" placeholder="Enter groupId (Mongo _id)" />
+    <hr />
 
-  <label for="userId">Your User ID:</label>
-  <input id="userId" placeholder="Enter your userId (Mongo _id)" />
+    <div id="chatUI" style="display: none">
+      <h3>🔗 Group Chat</h3>
+      <label>Group ID: </label>
+      <input type="text" id="groupIdInput" placeholder="Enter group ID" />
+      <button onclick="joinGroup()">Join Group</button><br /><br />
 
-  <div id="messages"></div>
+      <label>Group Message: </label>
+      <input
+        type="text"
+        id="groupMessageInput"
+        placeholder="Enter group message"
+      />
 
-  <input id="messageInput" placeholder="Type a message..." />
-  <button onclick="sendMessage()">Send</button>
+      <button onclick="sendGroupMessage()">Send to Group</button>
 
-  <script>
-    const socket = io('http://localhost:3000', {
-      transports: ['websocket'],
-    });
+      <hr />
+      <h4>Messages</h4>
+      <div
+        id="messages"
+        style="
+          border: 1px solid #ccc;
+          padding: 10px;
+          height: 300px;
+          overflow-y: scroll;
+          background: #f9f9f9;
+        "
+      ></div>
+    </div>
 
-    const messagesDiv = document.getElementById('messages');
+    <script>
+      let socket;
+      let userId;
 
-    socket.on('connect', () => {
-      console.log('Connected to WebSocket server');
-    });
-
-    socket.on('receive_group_message', (message) => {
-      const div = document.createElement('div');
-      div.textContent = `${message.sender}: ${message.content}`;
-      messagesDiv.appendChild(div);
-    });
-
-    function sendMessage() {
-      const groupId = document.getElementById('groupId').value.trim();
-      const userId = document.getElementById('userId').value.trim();
-      const content = document.getElementById('messageInput').value.trim();
-
-      if (!groupId || !userId || !content) {
-        alert('Fill all fields!');
-        return;
+      function generateUserId() {
+        const hex = [...Array(24)]
+          .map(() => Math.floor(Math.random() * 16).toString(16))
+          .join('');
+        document.getElementById('userIdInput').value = hex;
       }
 
-      socket.emit('send_group_message', {
-        groupId,
-        senderId: userId,
-        content,
-      });
+      function connect() {
+        userId = document.getElementById('userIdInput').value;
+        if (!userId) return alert('Please enter userId first.');
 
-      document.getElementById('messageInput').value = '';
-    }
-  </script>
+        socket = io('http://localhost:3001/chat', {
+          query: { userId },
+          transports: ['websocket'],
+        });
 
-</body>
+        socket.on('connect', () => {
+          logMessage(`✅ Connected as ${userId}`, false, true);
+          document.getElementById('chatUI').style.display = 'block';
+        });
+
+        socket.on('receiveGroupMessage', (data) => {
+          logMessage(
+            `(Group ${data.groupId}) ${data.sender}: ${data.content}`,
+            false,
+          );
+        });
+
+        socket.on('disconnect', () => {
+          logMessage('❌ Disconnected', false, true);
+        });
+      }
+
+      function joinGroup() {
+        const groupId = document.getElementById('groupIdInput').value;
+        if (!groupId) return alert('Please enter group ID to join');
+
+        socket.emit('joinGroup', { groupId }, (response) => {
+          if (response && response.success) {
+            logMessage(`✅ Successfully joined group ${groupId}`, false, true);
+          } else if (response && response.success === false) {
+            logMessage(
+              `❌ Failed to join group: ${response.error || 'Unknown error'}`,
+              false,
+              true,
+            );
+          } else {
+            logMessage(
+              `✅ Join group request sent (check server for confirmation)`,
+              false,
+              true,
+            );
+          }
+        });
+      }
+
+      function sendGroupMessage() {
+        const groupId = document.getElementById('groupIdInput').value;
+        const content = document.getElementById('groupMessageInput').value;
+        if (!groupId || !content) {
+          return alert('Please enter group ID and message');
+        }
+
+        socket.emit('sendGroupMessage', { groupId, content }, (response) => {
+          if (response && response.success) {
+            logMessage(`✅ Message sent to group ${groupId}`, true, false);
+          } else if (response && response.success === false) {
+            logMessage(
+              `❌ Failed to send message: ${response.error || 'Unknown error'}`,
+              false,
+              true,
+            );
+          } else {
+            logMessage(
+              `✅ Send message request sent (check server for confirmation)`,
+              true,
+              false,
+            );
+          }
+        });
+
+        document.getElementById('groupMessageInput').value = '';
+      }
+
+      function logMessage(msg, isSender = false, isSystem = false) {
+        const div = document.createElement('div');
+        div.textContent = msg;
+        div.style.padding = '8px 12px';
+        div.style.margin = '6px 0';
+        div.style.borderRadius = '18px';
+        div.style.maxWidth = '60%';
+        div.style.wordWrap = 'break-word';
+        div.style.fontSize = '15px';
+        div.style.position = 'relative';
+
+        if (isSystem) {
+          div.style.backgroundColor = '#e0e0e0';
+          div.style.textAlign = 'center';
+          div.style.color = '#333';
+          div.style.margin = '8px auto';
+        } else if (isSender) {
+          div.style.backgroundColor = '#DCF8C6';
+          div.style.marginLeft = 'auto';
+          div.style.textAlign = 'right';
+        } else {
+          div.style.backgroundColor = '#FFFFFF';
+          div.style.marginRight = 'auto';
+          div.style.textAlign = 'left';
+        }
+
+        document.getElementById('messages').appendChild(div);
+        document.getElementById('messages').scrollTop =
+          document.getElementById('messages').scrollHeight;
+      }
+    </script>
+  </body>
 </html>

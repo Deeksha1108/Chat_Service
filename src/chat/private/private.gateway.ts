@@ -13,7 +13,6 @@ import { ChatService } from './private.service';
 import { Logger } from '@nestjs/common';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { RedisService } from '../redis/redis.service';
-import { Types } from 'mongoose';
 
 @WebSocketGateway({ namespace: 'chat' })
 export class ChatGateway

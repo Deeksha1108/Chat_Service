@@ -2,47 +2,84 @@ import {
   Body,
   Controller,
   Get,
-  Post,
   Param,
-  NotFoundException,
+  Patch,
+  Post,
+  UsePipes,
+  ValidationPipe,
 } from '@nestjs/common';
 import { GroupService } from './group.service';
 import { CreateGroupDto } from './dto/create-group.dto';
+import { AddMemberDto } from './dto/add-member.dto';
+import { PromoteToAdminDto } from './dto/promote-admin.dto';
+import { SendGroupInviteDto } from './dto/send-group-invite.dto';
 import { SendGroupMessageDto } from './dto/send-group-message.dto';
 
-@Controller('group')
+@Controller('groups')
 export class GroupController {
   constructor(private readonly groupService: GroupService) {}
 
-  // Create a new group
+  // Create new group
   @Post()
-  async createGroup(@Body() dto: CreateGroupDto) {
-    const group = await this.groupService.createGroup(dto);
-    return { status: 'success', group };
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  async createGroup(@Body() createGroupDto: CreateGroupDto) {
+    return this.groupService.createGroup(createGroupDto);
   }
 
-  // Send message to a group
-  @Post(':groupId/messages')
-  async sendGroupMessage(
+  // Add member to group (admin only)
+  @Post('add-member')
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  async addMember(@Body() addMemberDto: AddMemberDto) {
+    console.log('Received payload:', addMemberDto);
+    return this.groupService.addMember(addMemberDto);
+  }
+
+  // Send messages to group
+  @Post('send-message')
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  async sendMessage(@Body() dto: SendGroupMessageDto) {
+    const message = await this.groupService.createMessage(dto);
+    return { message };
+  }
+
+  @Get('tagged-messages/:groupId/:userId')
+  async getTaggedMessages(
     @Param('groupId') groupId: string,
-    @Body() dto: SendGroupMessageDto,
+    @Param('userId') userId: string,
   ) {
-    const message = await this.groupService.sendGroupMessage(groupId, dto);
-    return { status: 'success', message };
+    const messages = await this.groupService.getTaggedMessages(groupId, userId);
+    return { messages };
   }
 
-  // Get all messages of a group
-  @Get(':groupId/messages')
-  async getGroupMessages(@Param('groupId') groupId: string) {
-    const messages = await this.groupService.getGroupMessages(groupId);
-    if (!messages) throw new NotFoundException('Group not found');
-    return { status: 'success', messages };
+  // Promote member to admin (admin only)
+  @Patch('promote-admin')
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  async promoteToAdmin(@Body() promoteToAdminDto: PromoteToAdminDto) {
+    return this.groupService.promoteToAdmin(promoteToAdminDto);
   }
 
-  // Get all groups a user is in
-  @Get('user/:userId')
-  async getUserGroups(@Param('userId') userId: string) {
-    const groups = await this.groupService.getGroupsByUser(userId);
-    return { status: 'success', groups };
+  // Send invite to user (admin only)
+  @Post(':groupId/invite')
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  async sendInvite(
+    @Param('groupId') groupId: string,
+    @Body() dto: SendGroupInviteDto,
+  ) {
+    return this.groupService.sendInvite(
+      groupId,
+      dto.invitedBy,
+      dto.invitedUserId,
+    );
+  }
+
+  // Respond to invite (accept or decline)
+  @Patch('invite/:inviteId/respond')
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  async respondToInvite(
+    @Param('inviteId') inviteId: string,
+    @Body('userId') userId: string,
+    @Body('status') status: 'accepted' | 'declined',
+  ) {
+    return this.groupService.respondToInvite(inviteId, userId, status);
   }
 }

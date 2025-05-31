@@ -5,6 +5,7 @@ import {
   ArrayMinSize,
   ArrayNotEmpty,
   ArrayUnique,
+  IsMongoId,
 } from 'class-validator';
 
 export class CreateGroupDto {
@@ -16,10 +17,14 @@ export class CreateGroupDto {
   @ArrayUnique()
   @IsArray()
   @ArrayMinSize(2)
-  @IsString({ each: true })
-  members: string[];
+  @IsMongoId({ each: true })
+  memberIds: string[];
 
   @IsString()
   @IsNotEmpty()
+  description: string;
+
+  @IsNotEmpty()
+  @IsMongoId()
   createdBy: string;
 }

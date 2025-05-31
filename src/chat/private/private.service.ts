@@ -27,19 +27,19 @@ export class ChatService {
   async createMessage(
     senderId: string,
     receiverId: string,
-    conversationId: string,
+    roomId: string,
     content: string,
   ) {
     if (
       !Types.ObjectId.isValid(senderId) ||
-      !Types.ObjectId.isValid(conversationId)
+      !Types.ObjectId.isValid(roomId)
     ) {
       throw new Error('Invalid sender or conversation ID');
     }
     const message = new this.messageModel({
       sender: new Types.ObjectId(senderId),
       receiver: new Types.ObjectId(receiverId),
-      conversationId: new Types.ObjectId(conversationId),
+      roomId: new Types.ObjectId(roomId),
       content,
       delivered: false,
       read: false,
@@ -59,15 +59,15 @@ export class ChatService {
     senderId: string;
     receiverId: string;
     content: string;
-    conversationId: string;
+    roomId: string;
   }) {
     return this.messageModel.create(data);
   }
 
 
-  async getMessages(conversationId: string) {
+  async getMessages(roomId: string) {
     return this.messageModel
-      .find({ conversationId: new Types.ObjectId(conversationId) })
+      .find({ roomId: new Types.ObjectId(roomId) })
       .sort({ createdAt: 1 });
   }
 
@@ -91,7 +91,7 @@ async markAsDelivered(messageId: string) {
   async getUnreadCount(userId: string) {
     return this.messageModel.aggregate([
       { $match: { receiver: new Types.ObjectId(userId), read: false } },
-      { $group: { _id: '$conversationId', count: { $sum: 1 } } },
+      { $group: { _id: '$roomId', count: { $sum: 1 } } },
     ]);
   }
 }
