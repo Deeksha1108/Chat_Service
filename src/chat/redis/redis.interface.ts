@@ -1,4 +1,4 @@
-import { RedisClientOptions } from "redis";
+import { RedisClientOptions } from 'redis';
 
 export interface RedisTcpOptions {
   host?: string;

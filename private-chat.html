@@ -2,171 +2,276 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Private Chat (1-to-1) UI</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Simple Chat</title>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+      body {
+        font-family: Arial;
+        max-width: 600px;
+        margin: auto;
+        padding: 20px;
+      }
+      #chat {
+        border: 1px solid #ccc;
+        padding: 10px;
+        height: 300px;
+        overflow-y: auto;
+        margin-bottom: 10px;
+        background-color: #f9f9f9;
+      }
+      .message {
+        margin: 5px 0;
+        padding: 10px;
+        border-radius: 10px;
+        max-width: 70%;
+        word-wrap: break-word;
+        clear: both;
+      }
+      .sent {
+        background-color: #dcf8c6;
+        float: right;
+        text-align: right;
+      }
+      .received {
+        background-color: #ffffff;
+        float: left;
+        text-align: left;
+      }
+      .system {
+        background-color: #eee;
+        text-align: center;
+        font-style: italic;
+        clear: both;
+      }
+      #message {
+        width: 80%;
+        padding: 5px;
+      }
+      #sendBtn {
+        padding: 5px 10px;
+      }
+      button {
+        margin-top: 5px;
+      }
+    </style>
   </head>
-  <body style="font-family: sans-serif; padding: 20px">
-    <h2>💬 Private Chat (1-to-1)</h2>
+  <body>
+    <h2>Chat Service</h2>
 
-    <label>Your User ID: </label>
-    <input type="text" id="userIdInput" placeholder="Enter your userId" />
-    <button onclick="generateUserId()">Random ID</button>
-    <button onclick="connect()">Join Chat</button>
+    <label>Sender ID:</label>
+    <input id="senderId" placeholder="Enter sender Id" />
+    <button onclick="generateRandomObjectId('senderId')">Random Sender</button>
+    <br /><br />
 
+    <label>Receiver ID:</label>
+    <input id="receiverId" placeholder="Enter receiver Id" />
+    <br /><br />
+
+    <button onclick="connectSocket()">Connect</button>
+    <button onclick="fetchOrCreateRoomId()">Get Room ID</button>
+    <br /><br />
+
+    <label>Room ID:</label>
+    <input id="roomId" placeholder="Enter roomId" readonly />
     <hr />
 
-    <div id="chatUI" style="display: none">
-      <label>Send to User ID: </label>
-      <input
-        type="text"
-        id="receiverIdInput"
-        placeholder="Enter receiver userId"
-      /><br /><br />
+    <div id="chat"></div>
 
-      <label>Message: </label>
-      <input type="text" id="messageInput" placeholder="Enter your message" />
-      <button onclick="sendMessage()">Send</button>
-
-      <hr />
-      <div>
-        <h4>Messages</h4>
-        <div
-          id="messages"
-          style="
-            border: 1px solid #ccc;
-            padding: 10px;
-            height: 300px;
-            overflow-y: scroll;
-            background: #f9f9f9;
-          "
-        ></div>
-      </div>
-    </div>
+    <input type="text" id="message" placeholder="Type your message..." />
+    <button id="sendBtn" onclick="sendMessage()">Send</button>
 
     <script>
-      let socket;
-      let userId;
+      let socket = null;
+      const messagesMap = new Map();
 
-      function generateUserId() {
-        const hex = [...Array(24)]
+      function generateRandomObjectId(fieldId) {
+        const objectId = [...Array(24)]
           .map(() => Math.floor(Math.random() * 16).toString(16))
           .join('');
-        document.getElementById('userIdInput').value = hex;
+        document.getElementById(fieldId).value = objectId;
       }
 
-      function connect() {
-        userId = document.getElementById('userIdInput').value;
-        if (!userId) return alert('Please enter userId first.');
+      async function fetchOrCreateRoomId() {
+        const senderId = document.getElementById('senderId').value;
+        const receiverId = document.getElementById('receiverId').value;
+
+        if (!senderId || !receiverId) {
+          alert('Sender and Receiver IDs are required');
+          return;
+        }
+
+        try {
+          const response = await fetch(
+            'http://localhost:3001/chat/conversation',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user1: senderId, user2: receiverId }),
+            },
+          );
+
+          const result = await response.json();
+
+          if (!response.ok || !result._id) {
+            alert(result.message || 'Failed to fetch/create room');
+            return;
+          }
+
+          document.getElementById('roomId').value = result._id;
+          appendMessage({
+            senderId: 'System',
+            content: `🆔 Room created/found: ${result._id}`,
+          });
+        } catch (err) {
+          console.error('Error:', err);
+          alert('⚠️ Error getting room ID. Check console.');
+        }
+      }
+
+      function connectSocket() {
+        const senderId = document.getElementById('senderId').value;
+        if (!senderId) {
+          alert('Sender ID is required');
+          return;
+        }
 
         socket = io('http://localhost:3001/chat', {
-          query: { userId },
-          transports: ['websocket'],
+          auth: { userId: senderId },
         });
 
         socket.on('connect', () => {
-          logMessage(`✅ Connected as ${userId}`, false, true);
-          document.getElementById('chatUI').style.display = 'block';
+          appendMessage({
+            senderId: 'System',
+            content: `🟢 Connected as ${senderId}`,
+          });
         });
 
-        socket.on('receiveMessage', (msg) => {
-          const isSender = msg.sender === userId;
-          logMessage(`${msg.content}`, isSender, false, msg._id);
-
-          if (!isSender) {
-            socket.emit('messageDelivered', { messageId: msg._id });
-            socket.emit('readMessage', { messageId: msg._id });
-          }
+        socket.on('receive_message', (msg) => {
+          appendMessage(msg);
         });
 
-        socket.on('messageSent', (res) => {
+        socket.on('message_status', (res) => {
           if (res.status === 'success') {
-            logMessage(`${res.message.content}`, true, false, res.message._id);
+            appendMessage({ ...res.savedMessage, status: 'sent' });
           } else {
-            logMessage('❌ Message send failed.', false);
+            appendMessage({
+              senderId: 'System',
+              content: `❌ Message failed: ${res.message}`,
+            });
           }
         });
 
-        socket.on('messageDeliveryAck', (data) => {
-          console.log(`📬 Message ${data.messageId} marked as delivered`);
+        socket.on('message_delivered', (data) => {
+          appendMessage({
+            senderId: 'System',
+            content: `📬 Delivered to ${data.deliveredBy}`,
+          });
         });
 
-        socket.on('messageReadAck', (data) => {
-          console.log(`✅ Message ${data.messageId} marked as read`);
-
-          const msgDiv = document.querySelector(
-            `[data-id="${data.messageId}"]`,
-          );
+        socket.on('message_deleted', (data) => {
+          const msgDiv = messagesMap.get(data.messageId);
           if (msgDiv) {
-            const tick = msgDiv.querySelector('.tick');
-            if (tick) {
-              tick.style.color = '#007bff'; // blue tick
-            }
+            msgDiv.remove();
+            messagesMap.delete(data.messageId);
           }
         });
 
         socket.on('disconnect', () => {
-          logMessage('❌ Disconnected', false, true);
+          appendMessage({ senderId: 'System', content: '🔴 Disconnected' });
         });
 
-        socket.io.on('reconnect_attempt', () => {
-          console.log('Attempting to reconnect...');
+        socket.on('connect_error', (err) => {
+          appendMessage({
+            senderId: 'System',
+            content: `⚠️ Socket connection error: ${err.message}`,
+          });
         });
       }
 
       function sendMessage() {
-        const receiverId = document.getElementById('receiverIdInput').value;
-        const content = document.getElementById('messageInput').value;
-        if (!receiverId || !content) {
-          return alert('Please fill both receiver ID and message');
+        const senderId = document.getElementById('senderId').value;
+        const receiverId = document.getElementById('receiverId').value;
+        const roomId = document.getElementById('roomId').value;
+        const content = document.getElementById('message').value;
+
+        if (!socket || !socket.connected) {
+          alert('Not connected!');
+          return;
         }
 
-        socket.emit('sendMessage', { receiverId, content });
-        document.getElementById('messageInput').value = '';
+        if (!receiverId || !roomId || !content) {
+          alert('Receiver ID, Room ID, and message are required');
+          return;
+        }
+
+        socket.emit('send_message', {
+          senderId,
+          receiverId,
+          roomId,
+          content,
+        });
+
+        document.getElementById('message').value = '';
       }
 
-      function logMessage(
-        msg,
-        isSender = false,
-        isSystem = false,
-        messageId = '',
-      ) {
-        const div = document.createElement('div');
-        div.textContent = msg;
-        div.style.padding = '8px 12px';
-        div.style.margin = '6px 0';
-        div.style.borderRadius = '18px';
-        div.style.maxWidth = '60%';
-        div.style.wordWrap = 'break-word';
-        div.style.fontSize = '15px';
-        div.style.position = 'relative';
+      function appendMessage(msgObj) {
+        const chat = document.getElementById('chat');
 
-        if (messageId) div.setAttribute('data-id', messageId);
-
-        if (isSystem) {
-          div.style.backgroundColor = '#e0e0e0';
-          div.style.textAlign = 'center';
-          div.style.color = '#333';
-          div.style.margin = '8px auto';
-        } else if (isSender) {
-          div.style.backgroundColor = '#DCF8C6';
-          div.style.marginLeft = 'auto';
-          div.style.textAlign = 'right';
-
-          const tickSpan = document.createElement('span');
-          tickSpan.className = 'tick';
-          tickSpan.style.fontSize = '14px';
-          tickSpan.style.color = 'gray';
-          tickSpan.innerText = ' ✔✔'; // Default gray tick
-          div.appendChild(tickSpan);
-        } else {
-          div.style.backgroundColor = '#FFFFFF';
-          div.style.marginRight = 'auto';
-          div.style.textAlign = 'left';
+        const msgDiv=document.createElement('div');
+        msgDiv.classList.add('message');
+        
+        if (msgObj.isDeleted) {
+          const msgDiv = messagesMap.get(msgObj.id);
+          if (msgDiv) {
+            msgDiv.remove();
+            messagesMap.delete(msgObj.id);
+          }
+          return;
         }
 
-        document.getElementById('messages').appendChild(div);
-        document.getElementById('messages').scrollTop =
-          document.getElementById('messages').scrollHeight;
+        const currentSender = document.getElementById('senderId').value;
+        const div = document.createElement('div');
+        const isSystem = msgObj.senderId === 'System';
+        const isCurrentUser = msgObj.senderId === currentSender;
+
+        div.className = 'message';
+
+        if (isSystem) {
+          div.classList.add('system');
+          div.textContent = msgObj.content;
+        } else if (isCurrentUser) {
+          div.classList.add('sent');
+          div.textContent = `${msgObj.content} ✅`;
+        } else {
+          div.classList.add('received');
+          div.textContent = `${msgObj.senderId}: ${msgObj.content}`;
+        }
+
+        if (isCurrentUser && msgObj.id) {
+          const deleteBtn = document.createElement('button');
+          deleteBtn.textContent = 'Delete';
+          deleteBtn.style.marginLeft = '10px';
+          deleteBtn.onclick = () => {
+            if (!socket || !socket.connected) {
+              alert('Not connected!');
+              return;
+            }
+            socket.emit('delete_message', {
+              messageId: msgObj.id,
+              roomId: document.getElementById('roomId').value,
+              senderId: currentSender,
+            });
+          };
+          div.appendChild(deleteBtn);
+        }
+
+        chat.appendChild(div);
+        chat.scrollTop = chat.scrollHeight;
+
+        if (msgObj.id) {
+          messagesMap.set(msgObj.id, div);
+        }
       }
     </script>
   </body>

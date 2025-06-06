@@ -1,7 +1,6 @@
 import { Module, Global } from '@nestjs/common';
 import { REDIS_CLIENT, REDIS_OPTIONS } from './redis.constants';
-import { CustomRedisOptions, RedisTcpOptions } from './redis.interface';
-import Redis from 'ioredis';
+import Redis, { RedisOptions } from 'ioredis';
 import { RedisService } from './redis.service';
 
 @Global()
@@ -10,19 +9,20 @@ import { RedisService } from './redis.service';
     {
       provide: REDIS_OPTIONS,
       useValue: {
-        url: 'redis://localhost:6379',
-        socket: {
-          host: 'localhost',
-          port: 6379,
-          tls: false,
-          rejectUnauthorized: false,
-        } as RedisTcpOptions,
-      } as CustomRedisOptions,
+        url: process.env.REDIS_URL || 'redis://localhost:6379',
+        retryStrategy: (times) => Math.min(times * 100, 2000),
+        // tls: false, // only set true for secure connections
+        // If you want to enable TLS in future:
+        // tls: { rejectUnauthorized: false } as ConnectionOptions
+      } as RedisOptions,
     },
     {
       provide: REDIS_CLIENT,
-      useFactory: async (options: CustomRedisOptions) => {
-        const client = new Redis(options.url || 'redis://localhost:6379');
+      useFactory: async (options: RedisOptions) => {
+        const client = new Redis(options);
+        client.on('error', (err) => {
+          console.error('[Redis Error]', err);
+        });
         return client;
       },
       inject: [REDIS_OPTIONS],

@@ -1,6 +1,6 @@
-import { IsNotEmpty, IsString, IsMongoId, ArrayMinSize } from 'class-validator';
+import { ArrayMinSize, IsNotEmpty, IsString } from 'class-validator';
 
-export class CreateMessageDto {
+export class SendMessageDto {
   @IsString()
   @IsNotEmpty()
   senderId: string;
@@ -9,7 +9,7 @@ export class CreateMessageDto {
   @IsNotEmpty()
   receiverId: string;
 
-  @IsMongoId()
+  @IsString()
   @IsNotEmpty()
   roomId: string;
 

@@ -10,8 +10,8 @@ import { RedisModule } from 'src/chat/redis/redis.module';
 @Module({
   imports: [
     MongooseModule.forFeature([
-      { name: Message.name, schema: MessageSchema },
       { name: Conversation.name, schema: ConversationSchema },
+      { name: Message.name, schema: MessageSchema },
     ]),
     RedisModule,
   ],

@@ -3,12 +3,24 @@ import { Document, Types } from 'mongoose';
 
 @Schema({ timestamps: true })
 export class Conversation extends Document {
-  @Prop({ type: Types.ObjectId, default: () => new Types.ObjectId() })
-  declare _id: Types.ObjectId;
-
-  @Prop({ type: [Types.ObjectId], ref: 'User' })
+  @Prop({
+    type: [{ type: Types.ObjectId, ref: 'User' }],
+    required: true,
+    validate: (val: Types.ObjectId[]) => val.length === 2,
+  })
   participants: Types.ObjectId[];
 }
 
 export const ConversationSchema = SchemaFactory.createForClass(Conversation);
-ConversationSchema.index({ participants: 1 });
+
+ConversationSchema.pre('save', function (next) {
+  this.participants.sort();
+  next();
+});
+
+ConversationSchema.index(
+  { 'participants.0': 1, 'participants.1': 1 },
+  { unique: true },
+);
+
+export type ConversationDocument = Conversation & Document;
