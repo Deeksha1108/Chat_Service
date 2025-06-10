@@ -9,18 +9,24 @@ import {
   Post,
   Put,
   Query,
+  Req,
+  Request,
+  UseGuards,
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
 import { ChatService } from './private.service';
 import { RedisService } from '../redis/redis.service';
-import { SendMessageDto } from './dto/send-message.dto';
 import { ObjectIdPipe } from '../pipes/objectid.pipe';
 import { BulkMarkDeliveredDto } from './dto/bulk-mark-delivered.dto';
 import { FindOrCreateConversationDto } from './dto/find-or-create-conversation.dto';
+import { AuthRequest } from 'express';
+import { AuthGuard } from '@nestjs/passport';
+import { MarkAsReadDto } from './dto/mark-as-read.dto';
+import { MessageDto } from './dto/message.dto';
 
 @Controller('chat')
-// @UseGuards(AuthGuard) // Optional, production recommendation
+@UseGuards(AuthGuard('jwt'))
 export class ChatController {
   constructor(
     private readonly chatService: ChatService,
@@ -29,67 +35,99 @@ export class ChatController {
 
   @Post('conversation')
   @UsePipes(new ValidationPipe({ whitelist: true }))
-  async createOrGetRoom(@Body() dto: FindOrCreateConversationDto) {
-    const { user1, user2 } = dto;
+  async createOrGetRoom(
+    @Body() dto: FindOrCreateConversationDto,
+    @Req() req: AuthRequest,
+  ) {
+    // const { user1, user2 } = dto;   // for testing
 
-    if (user1 === user2) {
+    const userId = req.user?.id;
+    const { user2 } = dto;
+
+    if (!userId) {
+      throw new BadRequestException('Invalid user context');
+    }
+    if (userId === user2) {
       throw new BadRequestException(
         'Cannot create a conversation with yourself',
       );
     }
-    return this.chatService.findOrCreateConversation(user1, user2);
+    return this.chatService.findOrCreateConversation(userId, user2);
   }
 
   @Post('messages')
   @UsePipes(new ValidationPipe({ whitelist: true }))
-  async sendMessage(@Body() dto: SendMessageDto) {
-    const { senderId, receiverId, roomId, content } = dto;
+  async sendMessage(@Body() dto: MessageDto, @Req() req: AuthRequest) {
+    const senderId = req.user?.id;
 
-    if (senderId === receiverId) {
-      throw new BadRequestException('Sender and receiver cannot be the same');
+    if (!senderId) {
+      throw new BadRequestException('Unauthorized user');
     }
-    return this.chatService.createMessage(
+    const { receiverId, roomId, content } = dto;
+
+    return this.chatService.sendMessage({
       senderId,
       receiverId,
       roomId,
       content,
-    );
+    });
   }
 
   @Patch('messages/delivered')
   @UsePipes(new ValidationPipe({ whitelist: true }))
-  async bulkMarkDelivered(@Body() dto: BulkMarkDeliveredDto) {
+  async bulkMarkDelivered(
+    @Body() dto: BulkMarkDeliveredDto,
+    @Request() req: AuthRequest,
+  ) {
+    const userId = req.user?.id;
+    if (!userId) {
+      throw new BadRequestException('Unauthorized');
+    }
     return this.chatService.bulkMarkAsDelivered(dto.messageIds);
   }
 
   @Patch('message/:id/delivered')
-  markAsDelivered(@Param('id', ObjectIdPipe) id: string) {
+  async markAsDelivered(@Param('id', ObjectIdPipe) id: string) {
     return this.chatService.markAsDelivered(id);
   }
 
   @Patch('message/read/:messageId')
-  markMessageRead(@Param('messageId', ObjectIdPipe) messageId: string) {
-    return this.chatService.markAsRead(messageId);
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  async markMessageRead(
+    @Body() dto: MarkAsReadDto,
+    @Request() req: AuthRequest,
+  ) {
+    const userId = req.user?.id;
+    if (!userId) throw new BadRequestException('Unauthorized');
+
+    return this.chatService.markAllAsRead(dto.messageId, userId);
   }
 
-  @Patch('message/read/room/:roomId/user/:userId')
+  @Patch('message/read/room/:roomId')
   markRoomMessagesAsRead(
     @Param('roomId', ObjectIdPipe) roomId: string,
-    @Param('userId', ObjectIdPipe) userId: string,
+    @Req() req: AuthRequest,
   ) {
+    const userId = req.user?.id;
+    if (!userId) throw new BadRequestException('Unauthorized');
     return this.chatService.markAllAsRead(roomId, userId);
   }
 
-  @Get('conversations/:userId')
-  getConversations(@Param('userId', ObjectIdPipe) userId: string) {
+  @Get('conversations')
+  async getConversations(@Req() req: AuthRequest) {
+    const userId = req.user?.id;
+    if (!userId) throw new BadRequestException('Unauthorized');
     return this.chatService.getConversations(userId);
   }
 
   @Get('messages/:roomId')
-  getMessages(
+  async getMessages(
     @Param('roomId', ObjectIdPipe) roomId: string,
-    @Query('userId') userId: string,
+    @Req() req: AuthRequest,
   ) {
+    const userId = req.user?.id;
+    if (!userId) throw new BadRequestException('Unauthorized');
+
     return this.chatService.getMessages(roomId, userId);
   }
 

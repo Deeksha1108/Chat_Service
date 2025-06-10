@@ -1,8 +1,8 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { HydratedDocument, Types } from 'mongoose';
 
 @Schema({ timestamps: true })
-export class Message extends Document {
+export class Message {
   @Prop({ type: Types.ObjectId, ref: 'Conversation', required: true })
   roomId: Types.ObjectId;
 
@@ -15,20 +15,14 @@ export class Message extends Document {
   @Prop({ type: String, required: true })
   content: string;
 
-  @Prop({ default: false })
-  delivered: boolean;
-
-  @Prop({ default: false })
-  read: boolean;
-
   @Prop({ type: String, enum: ['sent', 'delivered', 'seen'], default: 'sent' })
   status: string;
 
   @Prop({ type: Date })
-  deliveredAt: Date;
+  deliveredAt?: Date;
 
   @Prop({ type: Date })
-  seenAt: Date;
+  seenAt?: Date;
 
   @Prop({ type: Boolean, default: false })
   edited: boolean;
@@ -42,10 +36,14 @@ export class Message extends Document {
   @Prop({ type: Date })
   deletedAt?: Date;
 
+  @Prop()
   createdAt: Date;
+
+  @Prop()
   updatedAt: Date;
 }
 
+export type MessageDocument = HydratedDocument<Message>;
 export const MessageSchema = SchemaFactory.createForClass(Message);
 MessageSchema.index({ roomId: 1, createdAt: 1 });
-MessageSchema.index({ receiver: 1, read: 1 });
+MessageSchema.index({ receiver: 1, status: 1 });

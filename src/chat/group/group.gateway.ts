@@ -10,11 +10,12 @@ import {
 import { Server, Socket } from 'socket.io';
 import { GroupService } from './group.service';
 import { SendGroupMessageDto } from './dto/send-group-message.dto';
-import { Inject, Logger } from '@nestjs/common';
+import { Inject, Logger, UnauthorizedException } from '@nestjs/common';
 import { REDIS_CLIENT } from '../redis/redis.constants';
 import { RedisClientType } from 'redis';
 import { GroupMessageDocument } from './schema/group-message.schema';
 import { PromoteToAdminDto } from './dto/promote-admin.dto';
+import { JwtService } from '@nestjs/jwt';
 
 @WebSocketGateway({
   cors: {
@@ -29,37 +30,35 @@ export class GroupGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   constructor(
     private readonly groupService: GroupService,
+    private readonly jwtService: JwtService,
     @Inject(REDIS_CLIENT) private readonly redisClient: RedisClientType,
   ) {}
 
   async handleConnection(client: Socket) {
     try {
-      const userId = client.handshake.query.userId as string;
+      const token = client.handshake.auth?.token;
+      if (!token) throw new UnauthorizedException('Missing token');
 
-      if (!userId) {
-        this.logger.warn('Connection rejected: Missing userId');
-        return client.disconnect(true);
-      }
+      const payload = this.jwtService.verify(token);
+      const userId = payload.sub;
+      if (!userId) throw new UnauthorizedException('Invalid token');
+
+      client.data.userId = userId;
 
       await this.redisClient.set(`socket:${userId}`, client.id);
       this.logger.log(`User connected: ${userId} with socketId: ${client.id}`);
     } catch (error) {
-      this.logger.error(`Connection error: ${error.message}`);
+      this.logger.warn(`Connection rejected: ${error.message}`);
       client.disconnect(true);
     }
   }
 
   async handleDisconnect(client: Socket) {
     try {
-      const keys = await this.redisClient.keys('socket:*');
-      for (const key of keys) {
-        const socketId = await this.redisClient.get(key);
-        if (socketId === client.id) {
-          await this.redisClient.del(key);
-          const userId = key.split(':')[1];
-          this.logger.log(`User disconnected: ${userId}`);
-          break;
-        }
+      const userId = client.data?.userId;
+      if (userId) {
+        await this.redisClient.del(`socket:${userId}`);
+        this.logger.log(`User disconnected: ${userId}`);
       }
     } catch (error) {
       this.logger.error(`Disconnect error: ${error.message}`);
@@ -68,23 +67,23 @@ export class GroupGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   @SubscribeMessage('joinGroup')
   async handleJoinGroup(
-    @MessageBody() data: { userId: string; groupId: string },
+    @MessageBody() data: { groupId: string },
     @ConnectedSocket() client: Socket,
   ) {
-    const { userId, groupId } = data;
+    const userId = client.data.userId;
+    const { groupId } = data;
 
-    if (!userId || !groupId) {
-      client.emit('error', 'userId and groupId are required');
-      return;
+    if (!groupId || !userId) {
+      return client.emit('errorMessage', 'groupId is required');
     }
 
     try {
-      await this.redisClient.set(`socket:${userId}`, client.id);
-
       const isMember = await this.groupService.isUserInGroup(userId, groupId);
       if (!isMember) {
-        client.emit('error', 'You are not a member of this group');
-        return;
+        return client.emit(
+          'errorMessage',
+          'You are not a member of this group',
+        );
       }
 
       client.join(groupId);
@@ -92,20 +91,20 @@ export class GroupGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.logger.log(`User ${userId} joined group ${groupId}`);
     } catch (error) {
       this.logger.error(`joinGroup error: ${error.message}`);
-      client.emit('error', 'Failed to join group');
+      client.emit('errorMessage', 'Failed to join group');
     }
   }
 
   @SubscribeMessage('leaveGroup')
   async handleLeaveGroup(
-    @MessageBody() data: { userId: string; groupId: string },
+    @MessageBody() data: { groupId: string },
     @ConnectedSocket() client: Socket,
   ) {
-    const { userId, groupId } = data;
+    const userId = client.data.userId;
+    const { groupId } = data;
 
-    if (!userId || !groupId) {
-      client.emit('error', 'userId and groupId are required');
-      return;
+    if (!groupId || !userId) {
+      return client.emit('errorMessage', 'groupId is required');
     }
 
     try {
@@ -114,39 +113,37 @@ export class GroupGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.logger.log(`User ${userId} left group ${groupId}`);
     } catch (error) {
       this.logger.error(`leaveGroup error: ${error.message}`);
-      client.emit('error', 'Failed to leave group');
+      client.emit('errorMessage', 'Failed to leave group');
     }
   }
 
   @SubscribeMessage('promoteToAdmin')
   async handlePromoteToAdmin(
-    @MessageBody()
-    dto: PromoteToAdminDto,
+    @MessageBody() dto: PromoteToAdminDto,
     @ConnectedSocket() client: Socket,
   ) {
-    const { groupId, userId, promotedBy } = dto;
+    const { groupId, promotedBy, memberIdToPromote } = dto;
 
-    if (!groupId || !userId || !promotedBy) {
+    if (!groupId || !promotedBy || !memberIdToPromote) {
       client.emit(
         'errorMessage',
-        'groupId, userId, and promotedBy are required',
+        'groupId, promotedBy, and memberIdToPromote are required',
       );
       return;
     }
 
     try {
-      // Ensure promoter is still an admin
       await this.groupService.promoteToAdmin(dto);
-
-      // Notify everyone in the group
       this.server.to(groupId).emit('adminPromoted', {
         groupId,
-        userId,
+        memberIdToPromote,
         promotedBy,
-        message: `User ${userId} promoted to admin by ${promotedBy}`,
+        message: `User ${memberIdToPromote} promoted to admin by ${promotedBy}`,
       });
 
-      this.logger.log(`User ${userId} promoted to admin in group ${groupId}`);
+      this.logger.log(
+        `User ${memberIdToPromote} promoted to admin in group ${groupId}`,
+      );
     } catch (error) {
       this.logger.error(`promoteToAdmin error: ${error.message}`);
       client.emit('errorMessage', error.message || 'Promotion failed');
@@ -175,13 +172,11 @@ export class GroupGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() sendMessageDto: SendGroupMessageDto,
     @ConnectedSocket() client: Socket,
   ) {
-    const { senderId, groupId, content, taggedUserIds } = sendMessageDto;
+    const senderId = client.data.userId;
+    const { groupId, content, taggedUserIds } = sendMessageDto;
 
-    if (!senderId || !groupId || !content) {
-      return client.emit(
-        'errorMessage',
-        'senderId, groupId, and content are required',
-      );
+    if (!groupId || !content) {
+      return client.emit('errorMessage', 'groupId and content are required');
     }
 
     try {
@@ -193,7 +188,10 @@ export class GroupGateway implements OnGatewayConnection, OnGatewayDisconnect {
         );
       }
 
-      const message = await this.groupService.createMessage(sendMessageDto);
+      const message = await this.groupService.createMessage(
+        sendMessageDto,
+        senderId,
+      );
 
       this.server.to(groupId).emit('newMessage', message);
       this.logger.log(`User ${senderId} sent message to group ${groupId}`);
@@ -201,19 +199,9 @@ export class GroupGateway implements OnGatewayConnection, OnGatewayDisconnect {
       if (Array.isArray(taggedUserIds) && taggedUserIds.length > 0) {
         await this.notifyTaggedUsers(taggedUserIds, message);
       }
-      client.emit('messageSent', message);
     } catch (error) {
       this.logger.error(`sendMessage error: ${error.message}`);
       client.emit('errorMessage', 'Failed to send message');
-    }
-  }
-
-  async getSocketIdByUserId(userId: string): Promise<string | null> {
-    try {
-      return await this.redisClient.get(`socket:${userId}`);
-    } catch (error) {
-      this.logger.error(`getSocketIdByUserId error: ${error.message}`);
-      return null;
     }
   }
 }

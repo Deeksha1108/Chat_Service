@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { Message } from './schema/message.schema';
+import { Message, MessageDocument } from './schema/message.schema';
 import { Conversation } from './schema/conversation.schema';
 import { Socket } from 'socket.io';
 
@@ -158,7 +158,7 @@ export class ChatService {
     receiverId: string;
     content: string;
     roomId: string;
-  }): Promise<Message> {
+  }): Promise<MessageDocument> {
     const { senderId, receiverId, content, roomId } = data;
 
     if (
@@ -317,7 +317,7 @@ export class ChatService {
     return isParticipant;
   }
 
-  async markAsDelivered(messageId: string) {
+  async markAsDelivered(messageId: string): Promise<MessageDocument | null> {
     if (!Types.ObjectId.isValid(messageId)) {
       this.logger.warn(
         `Invalid messageId provided to markAsDelivered: ${messageId}`,
@@ -456,7 +456,7 @@ export class ChatService {
       throw new ForbiddenException('Unuthorized');
     }
 
-    if ((message as any).isDeleted) {
+    if (message.deleted) {
       this.logger.warn(`Edit attempt on deleted messageId ${messageId}`);
       throw new BadRequestException('Message does not exist');
     }

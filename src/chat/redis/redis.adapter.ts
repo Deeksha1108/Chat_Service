@@ -20,7 +20,6 @@ export class RedisIoAdapter extends IoAdapter {
       );
       return;
     }
-
     try {
       this.pubClient = createClient({
         url: redisUrl,

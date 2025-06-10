@@ -1,4 +1,11 @@
-import { IsArray, IsMongoId, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import {
+  ArrayUnique,
+  IsArray,
+  IsMongoId,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 export class SendGroupMessageDto {
   @IsNotEmpty()
@@ -6,15 +13,12 @@ export class SendGroupMessageDto {
   groupId: string;
 
   @IsNotEmpty()
-  @IsMongoId()
-  senderId: string;
-
-  @IsNotEmpty()
   @IsString()
   content: string;
 
   @IsOptional()
   @IsArray()
+  @ArrayUnique()
   @IsMongoId({ each: true })
   taggedUserIds?: string[];
 }

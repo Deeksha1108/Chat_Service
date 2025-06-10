@@ -218,9 +218,9 @@
       function appendMessage(msgObj) {
         const chat = document.getElementById('chat');
 
-        const msgDiv=document.createElement('div');
+        const msgDiv = document.createElement('div');
         msgDiv.classList.add('message');
-        
+
         if (msgObj.isDeleted) {
           const msgDiv = messagesMap.get(msgObj.id);
           if (msgDiv) {

@@ -1,9 +1,11 @@
-import { IsMongoId } from 'class-validator';
+import { IsMongoId, IsNotEmpty } from 'class-validator';
 
 export class SendGroupInviteDto {
+  @IsNotEmpty()
   @IsMongoId()
-  invitedBy: string;
+  groupId: string;
 
   @IsMongoId()
+  @IsNotEmpty()
   invitedUserId: string;
 }

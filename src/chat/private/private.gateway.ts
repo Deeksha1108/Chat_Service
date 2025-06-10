@@ -17,13 +17,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { RedisService } from '../redis/redis.service';
-import { SendMessageDto } from './dto/send-message.dto';
 import { isValidObjectId, Model } from 'mongoose';
 import {
   Conversation,
   ConversationDocument,
 } from './schema/conversation.schema';
 import { InjectModel } from '@nestjs/mongoose';
+import { MessageDto } from './dto/message.dto';
 
 @WebSocketGateway({
   cors: {
@@ -51,7 +51,7 @@ export class ChatGateway
     this.logger.log('WebSocket server initialized');
   }
 
-  async handleConnection(@ConnectedSocket() client: Socket) {
+  async handleConnection(@ConnectedSocket() client: Socket): Promise<void> {
     // const userId = client.handshake.auth?.userId?.toString();
     const userId = client.handshake.auth?.userId?.toString() || 'test-user'; // 🧪 Default for testing
 
@@ -104,7 +104,7 @@ export class ChatGateway
     }
   }
 
-  async handleDisconnect(@ConnectedSocket() client: Socket) {
+  async handleDisconnect(@ConnectedSocket() client: Socket): Promise<void> {
     // const userId = client.handshake.auth?.userId?.toString();
     const userId = client.handshake.auth?.userId?.toString() || 'test-user'; // 🧪 For testing
 
@@ -129,8 +129,16 @@ export class ChatGateway
   async handleJoinRoom(
     @MessageBody() roomId: string,
     @ConnectedSocket() client: Socket,
-  ) {
-    const userId = client.handshake.auth?.userId;
+  ): Promise<void> {
+    // const userId = client.handshake.auth?.userId;
+    const userId = client.handshake.auth?.userId.toString();
+    if (!userId || !isValidObjectId(userId)) {
+      this.logger.warn(
+        `join_room failed: invalid userId on socket ${client.id}`,
+      );
+      client.emit('room_error', { message: 'Unauthorized or invalid user ID' });
+      return;
+    }
 
     try {
       await this.chatService.validateRoomAccess(roomId, userId);
@@ -164,7 +172,7 @@ export class ChatGateway
   @SubscribeMessage('send_message')
   async handleMessage(
     @MessageBody()
-    data: SendMessageDto,
+    data: MessageDto,
     @ConnectedSocket() client: Socket,
   ) {
     //   const { senderId, receiverId, roomId, content } = data;
@@ -211,7 +219,7 @@ export class ChatGateway
         );
       } else {
         const updatedMessage = await this.chatService.markAsDelivered(
-          savedMessage.id,
+          savedMessage.id.toString(),
         );
 
         if (!updatedMessage) {

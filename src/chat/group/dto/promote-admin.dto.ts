@@ -7,10 +7,6 @@ export class PromoteToAdminDto {
 
   @IsNotEmpty()
   @IsMongoId()
-  userId: string;
-
-  @IsNotEmpty()
-  @IsMongoId()
   promotedBy: string;
 
   @IsNotEmpty()
