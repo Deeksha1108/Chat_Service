@@ -37,6 +37,7 @@ async function bootstrap() {
       },
     });
 
+    await app.init();
     await app.startAllMicroservices();
     await app.listen(3001);
     console.log(`Server running on http://localhost:3001`);

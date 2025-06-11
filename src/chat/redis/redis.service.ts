@@ -25,7 +25,6 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit() {
     try {
-      // await this.subClient.connect();
       await this.subClient.subscribe('group-messages', 'group-events');
       this.logger.log(
         '[Redis] Subscribed to channels: group-messages, group-events',
@@ -89,7 +88,6 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
         `Failed to remove socket "${socketId}" for user "${userId}"`,
         error.stack,
       );
-      // Optionally: throw new InternalServerErrorException() or report to monitoring
     }
   }
 
@@ -111,7 +109,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     const key = `user:${userId}:offlineMessages`;
     try {
       const messages = await this.client.lrange(key, 0, -1);
-      await this.client.del(key); // delete after retrieval
+      await this.client.del(key);
       return messages;
     } catch (error) {
       this.logger.error(
@@ -188,7 +186,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       this.logger.debug(`Published message to channel "${channel}"`, {
         message,
       });
-      return result; // Number of subscribers that received the message
+      return result;
     } catch (error) {
       this.logger.error(
         `Failed to publish message on channel "${channel}"`,

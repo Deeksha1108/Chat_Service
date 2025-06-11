@@ -12,9 +12,7 @@ export class Conversation {
 }
 
 export type ConversationDocument = HydratedDocument<Conversation>;
-
 export const ConversationSchema = SchemaFactory.createForClass(Conversation);
-
 ConversationSchema.pre('save', function (next) {
   this.participants.sort((a, b) => a.toString().localeCompare(b.toString()));
   next();

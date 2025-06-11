@@ -6,6 +6,7 @@ import { ChatController } from './private.controller';
 import { Message, MessageSchema } from './schema/message.schema';
 import { Conversation, ConversationSchema } from './schema/conversation.schema';
 import { RedisModule } from 'src/chat/redis/redis.module';
+import { GrpcClientModule } from 'src/common/grpc/clients/grpc-clients.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { RedisModule } from 'src/chat/redis/redis.module';
       { name: Message.name, schema: MessageSchema },
     ]),
     RedisModule,
+    GrpcClientModule,
   ],
   controllers: [ChatController],
   providers: [ChatGateway, ChatService],

@@ -10,10 +10,7 @@ import { RedisService } from './redis.service';
       provide: REDIS_OPTIONS,
       useValue: {
         url: process.env.REDIS_URL || 'redis://localhost:6379',
-        retryStrategy: (times) => Math.min(times * 100, 2000),
-        // tls: false, // only set true for secure connections
-        // If you want to enable TLS in future:
-        // tls: { rejectUnauthorized: false } as ConnectionOptions
+        retryStrategy: (times) => Math.min(times * 100, 2000), 
       } as RedisOptions,
     },
     {

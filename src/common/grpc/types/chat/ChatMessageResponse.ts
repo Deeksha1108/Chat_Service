@@ -1,6 +1,3 @@
-// Original file: src/common/grpc/proto/chat.proto
-
-
 export interface ChatMessageResponse {
   'messageId'?: (string);
   'senderId'?: (string);

@@ -1,6 +1,3 @@
-// Original file: src/common/grpc/proto/chat.proto
-
-
 export interface CreateGroupRequest {
   'groupName'?: (string);
   'creatorId'?: (string);

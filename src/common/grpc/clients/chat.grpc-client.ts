@@ -5,7 +5,7 @@ export const ChatClient = ClientProxyFactory.create({
   transport: Transport.GRPC,
   options: {
     package: 'chat',
-    protoPath: join(__dirname, '../proto/chat.proto'),
-    url: 'localhost:5002', // ✅ Replace with actual chat service URL/port
+    protoPath: join(process.cwd(), 'src/common/grpc/proto/chat.proto'),
+    url: 'localhost:5002',
   },
 });

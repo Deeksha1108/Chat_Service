@@ -599,11 +599,9 @@ export class GroupService {
       throw new ForbiddenException('Only admins can update the group name');
     }
 
-    // 4. Update the group name
     group.name = newName;
     await group.save();
 
-    // 5. Invalidate Redis cache (if used)
     if (this.redisClient) {
       await this.redisClient.del(`group:${groupId}`);
     }

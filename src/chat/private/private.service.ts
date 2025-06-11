@@ -220,7 +220,6 @@ export class ChatService {
       throw new NotFoundException('Conversation not found');
     }
 
-    // Ensure user is a participant of this conversation
     const isParticipant = room.participants.some(
       (id) => id.toString() === userId,
     );
@@ -245,7 +244,6 @@ export class ChatService {
       .skip(skip)
       .limit(limit)
       .lean();
-    // Optionally format deleted messages
     return messages.map((msg) => {
       if (msg.deleted) {
         return {
@@ -512,7 +510,6 @@ export class ChatService {
       return { success: false, message: 'Message already deleted' };
     }
 
-    // Soft delete: mark as deleted
     message.deleted = true;
     await message.save();
     this.logger.log(

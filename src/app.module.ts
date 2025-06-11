@@ -9,12 +9,12 @@ import { AuthModule } from './chat/auth/auth.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    // MongooseModule.forRoot(process.env.MONGODB_URI || 'mongodb://localhost/chatting'),
     MongooseModule.forRoot('mongodb://localhost/chatting'),
     ChatModule,
     RedisModule,
     GroupModule,
     AuthModule,
-    GroupModule,
   ],
 })
 export class AppModule {}

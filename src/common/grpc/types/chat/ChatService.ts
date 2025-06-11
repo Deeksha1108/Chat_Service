@@ -1,5 +1,3 @@
-// Original file: src/common/grpc/proto/chat.proto
-
 import type * as grpc from '@grpc/grpc-js'
 import type { MethodDefinition } from '@grpc/proto-loader'
 import type { ChatMessageResponse as _chat_ChatMessageResponse, ChatMessageResponse__Output as _chat_ChatMessageResponse__Output } from '../chat/ChatMessageResponse';

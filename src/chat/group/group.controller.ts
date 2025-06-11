@@ -27,7 +27,7 @@ import { AuthRequest } from 'express';
 import { UpdateGroupDto } from './dto/update-group.dto';
 
 @Controller('groups')
-// @UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard)
 export class GroupController {
   private readonly logger = new Logger(GroupController.name);
 
@@ -41,9 +41,8 @@ export class GroupController {
     return this.groupService.createGroup(dto, userId);
   }
 
-  // Add member to group (admin only)
   @Post(':groupId/members')
-  // @UseGuards(GroupAdminGuard)
+  @UseGuards(GroupAdminGuard)
   @UsePipes(new ValidationPipe({ whitelist: true }))
   async addMember(
     @Param('groupId') groupId: string,
@@ -56,7 +55,7 @@ export class GroupController {
   }
 
   @Delete(':groupId/members/:memberId')
-  // @UseGuards(GroupAdminGuard)
+  @UseGuards(GroupAdminGuard)
   @UsePipes(new ValidationPipe({ whitelist: true }))
   async removeMember(
     @Body() dto: RemoveMemberDto,
@@ -66,9 +65,8 @@ export class GroupController {
     return this.groupService.removeMember(dto, userId);
   }
 
-  // Promote member to admin (admin only)
   @Patch(':groupId/admins/:memberId')
-  // @UseGuards(GroupAdminGuard)
+  @UseGuards(GroupAdminGuard)
   @UsePipes(new ValidationPipe({ whitelist: true }))
   async promoteToAdmin(
     @Body() dto: PromoteToAdminDto,
@@ -112,7 +110,7 @@ export class GroupController {
   }
 
   @Post(':groupId/invite')
-  // @UseGuards(GroupAdminGuard)
+  @UseGuards(GroupAdminGuard)
   @UsePipes(new ValidationPipe({ whitelist: true }))
   async sendInvite(
     @Param('groupId') groupId: string,
@@ -137,7 +135,7 @@ export class GroupController {
   }
 
   @Patch(':groupId/name')
-  // @UseGuards(GroupAdminGuard)
+  @UseGuards(GroupAdminGuard)
   @UsePipes(new ValidationPipe({ whitelist: true }))
   async updateGroupName(
     @Param('groupId') groupId: string,
