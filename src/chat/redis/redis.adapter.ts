@@ -9,7 +9,7 @@ export class RedisIoAdapter extends IoAdapter {
   private readonly logger = new Logger('RedisIoAdapter');
 
   async connectToRedis(): Promise<void> {
-    const redisUrl = 'redis://localhost:6379';
+    const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 
     if (
       (this.pubClient && this.pubClient.isOpen) ||

@@ -13,11 +13,10 @@ import {
 } from './schema/group-message.schema';
 import { GroupInvite, GroupInviteSchema } from './schema/group-invite.schema';
 
-import { GroupAdminGuard } from '../auth/guards/group-admin.guard';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-
 import { SocketModule } from 'src/socket/socket.module';
 import { RedisModule } from '../redis/redis.module';
+import { JwtAuthGuard } from 'src/guards/jwt-auth.guard';
+import { GroupAdminGuard } from 'src/guards/group-admin.guard';
 
 @Module({
   imports: [

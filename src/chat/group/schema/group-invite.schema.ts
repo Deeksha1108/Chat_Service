@@ -21,7 +21,10 @@ export class GroupInvite {
   })
   status: string;
 
+  @Prop({ default: Date.now })
   sentAt: Date;
+
+  @Prop()
   respondedAt?: Date;
 }
 

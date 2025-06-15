@@ -10,7 +10,7 @@ import { RedisService } from './redis.service';
       provide: REDIS_OPTIONS,
       useValue: {
         url: process.env.REDIS_URL || 'redis://localhost:6379',
-        retryStrategy: (times) => Math.min(times * 100, 2000), 
+        retryStrategy: (times) => Math.min(times * 100, 2000),
       } as RedisOptions,
     },
     {

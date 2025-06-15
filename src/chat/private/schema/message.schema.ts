@@ -15,14 +15,14 @@ export class Message {
   @Prop({ type: String, required: true })
   content: string;
 
-  @Prop({ type: String, enum: ['sent', 'delivered', 'seen'], default: 'sent' })
+  @Prop({ type: String, enum: ['sent', 'delivered', 'read'], default: 'sent' })
   status: string;
 
   @Prop({ type: Date })
   deliveredAt?: Date;
 
   @Prop({ type: Date })
-  seenAt?: Date;
+  readAt?: Date;
 
   @Prop({ type: Boolean, default: false })
   edited: boolean;

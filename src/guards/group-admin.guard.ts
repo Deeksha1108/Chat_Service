@@ -4,8 +4,8 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
-import { AuthRequest } from 'express';
 import { GroupService } from 'src/chat/group/group.service';
+import { AuthRequest } from 'src/types/express';
 
 @Injectable()
 export class GroupAdminGuard implements CanActivate {

@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package chat;
+
+service ChatService {
+  // Create or find a conversation
+  rpc FindOrCreateConversation (FindOrCreateConversationRequest) returns (ConversationResponse);
+
+  // Get messages of a conversation
+  rpc GetMessages (GetMessagesRequest) returns (MessageListResponse);
+
+  // Mark messages as read
+  rpc MarkAsRead (MarkAsReadRequest) returns (MarkAsReadResponse);
+
+  // Send a message (for internal use like bot/testing)
+  rpc SendMessage (SendMessageRequest) returns (MessageResponse);
+}
+
+// === Request / Response Messages ===
+
+message FindOrCreateConversationRequest {
+  string user1Id = 1;
+  string user2Id = 2;
+}
+
+message ConversationResponse {
+  string conversationId = 1;
+  repeated string participantIds = 2;
+  string createdAt = 3;
+}
+
+message GetMessagesRequest {
+  string conversationId = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message MessageListResponse {
+  repeated Message messages = 1;
+}
+
+message MarkAsReadRequest {
+  string userId = 1;
+  string conversationId = 2;
+}
+
+message MarkAsReadResponse {
+  bool success = 1;
+}
+
+message SendMessageRequest {
+  string senderId = 1;
+  string recipientId = 2;
+  string content = 3;
+}
+
+message MessageResponse {
+  string id = 1;
+  string senderId = 2;
+  string recipientId = 3;
+  string content = 4;
+  string timestamp = 5;
+  bool delivered = 6;
+  bool read = 7;
+}
+
+message Message {
+  string id = 1;
+  string senderId = 2;
+  string recipientId = 3;
+  string content = 4;
+  string timestamp = 5;
+  bool delivered = 6;
+  bool read = 7;
+}

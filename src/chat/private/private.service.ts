@@ -1,15 +1,24 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
+  InternalServerErrorException,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { isValidObjectId, Model, Types } from 'mongoose';
 import { Message, MessageDocument } from './schema/message.schema';
 import { Conversation } from './schema/conversation.schema';
 import { Socket } from 'socket.io';
+import { ClientGrpc } from '@nestjs/microservices';
+import { AUTH_SERVICE } from 'src/grpc/clients/grpc-clients.module';
+import { lastValueFrom, Observable } from 'rxjs';
+
+interface GrpcAuthService {
+  ValidateUser(data: { userId: string }): Observable<{ exists: boolean }>;
+}
 
 @Injectable()
 export class ChatService {
@@ -19,6 +28,7 @@ export class ChatService {
     @InjectModel(Message.name) private messageModel: Model<Message>,
     @InjectModel(Conversation.name)
     private readonly conversationModel: Model<Conversation>,
+    @Inject(AUTH_SERVICE) private readonly authClient: ClientGrpc,
   ) {}
 
   async findOrCreateConversation(
@@ -33,28 +43,45 @@ export class ChatService {
       this.logger.warn('User tried to create conversation with self');
       throw new BadRequestException('Action not allowed');
     }
-
     const participantIds = [user1, user2].sort();
-
     if (participantIds.length !== 2) {
-      this.logger.warn('More than two participants provided');
+      this.logger.warn('Only two participants allowed');
       throw new BadRequestException('Invalid request');
     }
-    if (!participantIds.every(Types.ObjectId.isValid)) {
+
+    if (!participantIds.every((id) => Types.ObjectId.isValid(id))) {
       this.logger.warn('Invalid participant IDs');
       throw new BadRequestException('Request is not valid');
     }
+    // It is for future reference abhi auth service ko call kr rhi hu baad me user service se communicate krwane ke liye
+    // try {
+    //   const authService =
+    //     this.authClient.getService<GrpcAuthService>('AuthService');
+    //   this.logger.log(`Calling ValidateUser for user2: ${user2}`);
+    //   const response = await lastValueFrom(
+    //     authService.ValidateUser({ userId: user2 }),
+    //   );
+    //   this.logger.log(
+    //     `gRPC Response from AuthService: ${JSON.stringify(response, null, 2)}`,
+    //   );
+    //   if (!response?.exists) {
+    //     this.logger.warn(`User2 not found in AuthService: ${user2}`);
+    //     throw new BadRequestException('User2 does not exist');
+    //   }
+    // } catch (error) {
+    //   this.logger.error('Error validating user2 via AuthService', error);
+    //   throw new InternalServerErrorException('AuthService validation failed');
+    // }
 
     const participants = participantIds
       .map((id) => new Types.ObjectId(id))
       .sort((a, b) => a.toString().localeCompare(b.toString()));
-
     const conv = await this.conversationModel.findOneAndUpdate(
       { participants },
       { $setOnInsert: { participants } },
       { upsert: true, new: true },
     );
-    this.logger.log('room created successfully and users connected');
+    this.logger.log('Room created or found successfully');
     return conv;
   }
 
@@ -118,9 +145,7 @@ export class ChatService {
     }
 
     if (!content || !content.trim()) {
-      this.logger.warn(
-        `Empty message content received from sender: ${senderId}`,
-      );
+      this.logger.warn(`Empty message content read from sender: ${senderId}`);
 
       throw new BadRequestException('Message content cannot be empty');
     }
@@ -480,14 +505,12 @@ export class ChatService {
   }
 
   async deleteMessage(messageId: string, requesterId: string) {
-    if (
-      !Types.ObjectId.isValid(messageId) ||
-      !Types.ObjectId.isValid(requesterId)
-    ) {
-      this.logger.warn(
-        `Invalid IDs for deleteMessage: messageId=${messageId}, requesterId=${requesterId}`,
-      );
-      throw new BadRequestException('Invalid messageId or requesterId');
+    if (!isValidObjectId(messageId)) {
+      throw new BadRequestException('Invalid messageId');
+    }
+
+    if (!isValidObjectId(requesterId)) {
+      throw new BadRequestException('Invalid requesterId');
     }
     const message = await this.messageModel.findById(messageId);
 

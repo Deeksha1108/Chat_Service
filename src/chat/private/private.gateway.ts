@@ -25,11 +25,16 @@ import {
 } from './schema/conversation.schema';
 import { InjectModel } from '@nestjs/mongoose';
 import { MessageDto } from './dto/message.dto';
-import { lastValueFrom } from 'rxjs';
-import { ClientProxy } from '@nestjs/microservices';
+import { lastValueFrom, Observable } from 'rxjs';
 import { EditMessageDto } from './dto/edit-message.dto';
 import { DeleteMessageDto } from './dto/delete-message.dto';
 import { isDeletedMessagePayload } from './types/delete-message.interface';
+import { ClientGrpc } from '@nestjs/microservices';
+import { UserPayload } from 'src/types/auth.types.interface';
+
+interface AuthService {
+  ValidateToken(data: { access_token: string }): Observable<UserPayload>;
+}
 
 @WebSocketGateway({
   cors: {
@@ -45,16 +50,24 @@ export class ChatGateway
 
   private readonly logger = new Logger('ChatGateway');
 
+  private authClient: AuthService;
+
   constructor(
     private readonly chatService: ChatService,
     private readonly redisService: RedisService,
+    @Inject('AUTH_SERVICE') private readonly grpcClient: ClientGrpc,
 
     @InjectModel(Conversation.name)
     private readonly conversationModel: Model<ConversationDocument>,
-
-    @Inject('AUTH_SERVICE')
-    private readonly authClient: ClientProxy,
   ) {}
+
+  onModuleInit() {
+    try {
+      this.authClient = this.grpcClient.getService<AuthService>('AuthService');
+    } catch (err) {
+      this.logger.error('gRPC service failed to load:', err.message);
+    }
+  }
 
   afterInit(server: Server) {
     this.logger.log('WebSocket server initialized');
@@ -62,6 +75,10 @@ export class ChatGateway
 
   private async validateTokenAndGetUserId(client: Socket): Promise<string> {
     const token = client.handshake.auth?.token;
+    this.logger.log(
+      `Socket handshake auth object: ${JSON.stringify(client.handshake.auth, null, 2)}`,
+    );
+    this.logger.log(`Token received: ${token}`);
 
     if (!token) {
       this.logger.warn(`Token missing from socket ${client.id}`);
@@ -69,19 +86,22 @@ export class ChatGateway
     }
 
     try {
-      const response = await lastValueFrom(
-        this.authClient.send({ cmd: 'validate_token' }, { token }),
+      this.logger.log(
+        `gRPC request object format: ${JSON.stringify({ access_token: token }, null, 2)}`,
       );
-
+      const response = await lastValueFrom(
+        this.authClient.ValidateToken({ access_token: token }),
+      );
+      this.logger.log(
+        `gRPC response received: ${JSON.stringify(response, null, 2)}`,
+      );
       const userId = response?.userId;
-
-      if (!userId || !isValidObjectId(userId)) {
+      if (!userId) {
         this.logger.warn(
-          `Invalid user ID after token validation (socket ${client.id})`,
+          `Token validated but userId missing or invalid (socket ${client.id})`,
         );
         throw new ForbiddenException('Unauthorized: Invalid user');
       }
-
       return userId;
     } catch (error) {
       this.logger.error(
@@ -93,7 +113,10 @@ export class ChatGateway
 
   async handleConnection(@ConnectedSocket() client: Socket): Promise<void> {
     let userId: string;
-
+    this.logger.log(
+      'Checking socket auth before creating chat room:',
+      JSON.stringify(client.handshake.auth, null, 2),
+    );
     try {
       userId = await this.validateTokenAndGetUserId(client);
     } catch (error) {
@@ -221,18 +244,10 @@ export class ChatGateway
 
     const { receiverId, roomId, content } = data;
 
-    if (![receiverId, roomId, content].every(Boolean)) {
+    if (![receiverId, roomId].every(isValidObjectId)) {
       client.emit('error', {
         type: 'validation',
-        message: 'Missing required fields (receiverId, roomId, content)',
-      });
-      return;
-    }
-
-    if (![senderId, receiverId, roomId].every(isValidObjectId)) {
-      client.emit('error', {
-        type: 'validation',
-        message: 'Invalid sender/receiver/room ID',
+        message: 'Invalid receiver or room ID',
       });
       return;
     }
@@ -287,8 +302,8 @@ export class ChatGateway
     }
   }
 
-  @SubscribeMessage('message_received')
-  async handleMessageReceivedAck(
+  @SubscribeMessage('message_read')
+  async handleMessagereadAck(
     @MessageBody() { messageId }: { messageId: string },
     @ConnectedSocket() client: Socket,
   ): Promise<void> {
@@ -297,22 +312,10 @@ export class ChatGateway
     try {
       userId = await this.validateTokenAndGetUserId(client);
     } catch (err) {
-      client.emit('message_received_status', {
+      client.emit('message_read_status', {
         messageId,
         status: 'error',
         message: err.message,
-      });
-      return;
-    }
-
-    if (!messageId || !isValidObjectId(messageId)) {
-      this.logger.warn(
-        `Invalid messageId in message_received ack by user ${userId}`,
-      );
-      client.emit('message_received_status', {
-        messageId,
-        status: 'error',
-        message: 'Invalid messageId',
       });
       return;
     }
@@ -322,7 +325,7 @@ export class ChatGateway
 
       if (!updated) {
         this.logger.warn(`Message ${messageId} not found for user ${userId}`);
-        client.emit('message_received_status', {
+        client.emit('message_read_status', {
           messageId,
           status: 'error',
           message: 'Message not found',
@@ -334,7 +337,7 @@ export class ChatGateway
         this.logger.warn(
           `Unauthorized: user ${userId} tried to ack message ${messageId}`,
         );
-        client.emit('message_received_status', {
+        client.emit('message_read_status', {
           messageId,
           status: 'error',
           message: 'Unauthorized',
@@ -346,25 +349,25 @@ export class ChatGateway
       if (senderId) {
         const senderSockets = await this.redisService.getUserSockets(senderId);
         senderSockets.forEach((socketId) => {
-          this.server.to(socketId).emit('message_received_ack', {
+          this.server.to(socketId).emit('message_read_ack', {
             messageId,
-            receivedBy: userId,
+            readBy: userId,
             timeStamp: new Date().toISOString(),
           });
         });
       }
 
-      client.emit('message_received_status', {
+      client.emit('message_read_status', {
         messageId,
-        status: 'received',
+        status: 'read',
       });
 
-      this.logger.log(`Message ${messageId} received by ${userId}`);
+      this.logger.log(`Message ${messageId} read by ${userId}`);
     } catch (error) {
       this.logger.error(
-        `Error in message_received ack for ${messageId} by ${userId}: ${error.message}`,
+        `Error in message_read ack for ${messageId} by ${userId}: ${error.message}`,
       );
-      client.emit('message_received_status', {
+      client.emit('message_read_status', {
         messageId,
         status: 'error',
         message: 'Internal server error',
@@ -472,18 +475,6 @@ export class ChatGateway
         messageId,
         status: 'error',
         message: err.message,
-      });
-      return;
-    }
-
-    if (!messageId || !isValidObjectId(messageId)) {
-      this.logger.warn(
-        `Invalid messageId in read ack by user ${userId} (socket=${client.id})`,
-      );
-      client.emit('message_read_status', {
-        messageId,
-        status: 'error',
-        message: 'Invalid messageId',
       });
       return;
     }

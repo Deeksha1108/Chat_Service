@@ -629,7 +629,7 @@ export class GroupService {
     const group = await this.getGroup(groupId, { throwIfDeleted: true });
 
     const isMember = group.members.some(
-      (member) => member.toString() === userId,
+      (member) => member.userId.toString() === userId,
     );
     if (!isMember) {
       throw new BadRequestException('You are not a member of this group');
@@ -637,7 +637,7 @@ export class GroupService {
 
     const admins = group.members.filter((member) => member.role === 'admin');
 
-    const isAdmin = admins.some((admin) => admin.toString() === userId);
+    const isAdmin = admins.some((admin) => admin.userId.toString() === userId);
 
     if (isAdmin && admins.length === 1) {
       throw new ForbiddenException(
