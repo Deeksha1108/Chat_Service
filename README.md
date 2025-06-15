@@ -46,6 +46,8 @@ npm run start:prod
 - **NestJS** (Node.js Framework)
 - **MongoDB** with Mongoose
 - **Redis** for storing offline messages
+- **gRPC** for communicate with Auth Service
+- **JWTAuthGuard** for validate the token from auth
 - **TypeScript**
 - **class-validator** for input validation
 - **Custom Pipes** like `ObjectIdPipe`
@@ -158,23 +160,81 @@ Retrieve offline messages stored in Redis for a user.
 ## 📂 Project Structure (Key Modules)
 
 ```
-src/
-├── chat/
-│   ├── chat.controller.ts
-│   ├── chat.service.ts
-│   ├── dto/
-│   └── ...
-├── redis/
-│   └── redis.service.ts
-├── pipes/
-│   └── objectid.pipe.ts
+chat_service/
+├── src/
+│   ├── app.module.ts
+│   ├── main.ts
+│
+│   ├── auth/                             # gRPC AuthService integration
+│   │   └── auth.module.ts
+│   │
+│
+│   ├── chat/
+│   │   ├── private/                      # 1-on-1 chat
+│   │   │   ├── dto/
+│   │   │   ├── schemas/
+│   │   │   ├── private.controller.ts
+│   │   │   ├── private.gateway.ts
+│   │   │   ├── private.service.ts
+│   │   │   └── private.module.ts
+│   │   │
+│   │   ├── group/                        # Group chat
+│   │   │   ├── dto/
+│   │   │   ├── schemas/
+│   │   │   ├── group.controller.ts
+│   │   │   ├── group.gateway.ts
+│   │   │   ├── group.service.ts
+│   │   │   └── group.module.ts
+│   │   │
+│   │
+│
+│   ├── grpc/                             # gRPC-related
+│   │   ├── proto/
+│   │   │   ├── auth.proto
+│   │   │   └── chat.proto
+│   │   └── clients/
+│   │       └── grpc-clients.module.ts
+│
+│   ├── redis/                            # Redis socket session mapping
+│   │   ├── redis.adapter.ts
+│   │   └── redis.constants.ts
+│   │   └── redis.interface.ts
+│   │   └── redis.module.ts
+│   │   └── redis.service.ts
+│
+│   ├── guards/
+│   │   ├── jwt-auth.guard.ts
+│   │   └── group-admin.guard.ts
+│
+│   ├── socket/                           # Common WebSocket logic (adapter etc.)
+│   │   ├── socket.constants.ts
+│   │   │
+│   │   ├── socket.module.ts                     # Socket payload & client interfaces
+│   │   │
+│   │   └── socket.provider.ts
+│
+│   ├── pipes/
+│   │   └── objectid.pipe.ts              # Custom validation pipe for ObjectIds
+│
+│   ├── strategies/
+│   │   └── jwt.strategy.ts
+│
+│   ├── types/
+│   │   └── express.d.ts                  # AuthRequest override for Express
+│
+│
+├── .env
+├── package.json
+├── tsconfig.json
+└── README.md
+
 ```
 
 ---
 
 ## 👨‍💻 Author
 
-Made with ❤️ by [Deeksha]
+Made by [Deeksha]
 
 ---
 
