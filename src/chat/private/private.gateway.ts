@@ -10,13 +10,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { ChatService } from './private.service';
-import {
-  BadRequestException,
-  ForbiddenException,
-  Inject,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { ForbiddenException, Inject, Logger } from '@nestjs/common';
 import { RedisService } from '../redis/redis.service';
 import { isValidObjectId, Model } from 'mongoose';
 import {
@@ -28,12 +22,19 @@ import { MessageDto } from './dto/message.dto';
 import { lastValueFrom, Observable } from 'rxjs';
 import { EditMessageDto } from './dto/edit-message.dto';
 import { DeleteMessageDto } from './dto/delete-message.dto';
-import { isDeletedMessagePayload } from './types/delete-message.interface';
 import { ClientGrpc } from '@nestjs/microservices';
 import { UserPayload } from 'src/types/auth.types.interface';
 
 interface AuthService {
   ValidateToken(data: { access_token: string }): Observable<UserPayload>;
+}
+
+interface UserServiceGrpc {
+  GetUserName(data: { userId: string }): Observable<{
+    fullName: string;
+    username: string;
+    mediaUrl: string;
+  }>;
 }
 
 @WebSocketGateway({
@@ -51,12 +52,13 @@ export class ChatGateway
   private readonly logger = new Logger('ChatGateway');
 
   private authClient: AuthService;
+  private userServiceGrpc: UserServiceGrpc;
 
   constructor(
     private readonly chatService: ChatService,
     private readonly redisService: RedisService,
     @Inject('AUTH_SERVICE') private readonly grpcClient: ClientGrpc,
-
+    @Inject('USER_SERVICE') private readonly userGrpcClient: ClientGrpc,
     @InjectModel(Conversation.name)
     private readonly conversationModel: Model<ConversationDocument>,
   ) {}
@@ -64,6 +66,8 @@ export class ChatGateway
   onModuleInit() {
     try {
       this.authClient = this.grpcClient.getService<AuthService>('AuthService');
+      this.userServiceGrpc =
+        this.userGrpcClient.getService<UserServiceGrpc>('UserService');
     } catch (err) {
       this.logger.error('gRPC service failed to load:', err.message);
     }
@@ -74,7 +78,17 @@ export class ChatGateway
   }
 
   private async validateTokenAndGetUserId(client: Socket): Promise<string> {
-    const token = client.handshake.auth?.token;
+    let token = client.handshake.auth?.token;
+
+    if (!token && client.handshake.headers?.authorization) {
+      const authHeader = client.handshake.headers.authorization;
+      if (authHeader.startsWith('Bearer ')) {
+        token = authHeader.slice(7);
+      }
+    }
+    if (!token && client.handshake.query?.token) {
+      token = client.handshake.query.token as string;
+    }
     this.logger.log(
       `Socket handshake auth object: ${JSON.stringify(client.handshake.auth, null, 2)}`,
     );
@@ -86,12 +100,11 @@ export class ChatGateway
     }
 
     try {
-      this.logger.log(
-        `gRPC request object format: ${JSON.stringify({ access_token: token }, null, 2)}`,
-      );
+      this.logger.log(`gRPC request to ValidateToken with: ${token}`);
       const response = await lastValueFrom(
         this.authClient.ValidateToken({ access_token: token }),
       );
+      console.log(response);
       this.logger.log(
         `gRPC response received: ${JSON.stringify(response, null, 2)}`,
       );
@@ -139,10 +152,22 @@ export class ChatGateway
       const offlineMessages =
         await this.redisService.getOfflineMessages(userId);
       if (offlineMessages?.length) {
+        this.logger.log(
+          `[Connection] Delivering ${offlineMessages.length} offline messages to user ${userId}`,
+        );
+
         for (const raw of offlineMessages) {
           try {
             const msg = JSON.parse(raw);
-            client.emit('receive_message', msg);
+            const sender = await lastValueFrom(
+              this.userServiceGrpc.GetUserName({ userId: msg.senderId }),
+            );
+
+            client.emit('receive_message', {
+              ...msg,
+              senderUsername: sender?.username,
+              senderFullName: sender?.fullName,
+            });
           } catch (e) {
             this.logger.warn(
               `Invalid offline message JSON for ${userId}: ${e.message}`,
@@ -187,9 +212,63 @@ export class ChatGateway
     this.logger.log(`User ${userId} disconnected (socket ${client.id})`);
   }
 
-  @SubscribeMessage('join_room')
-  async handleJoinRoom(
-    @MessageBody() roomId: string,
+  // @SubscribeMessage('join_room')
+  // async handleJoinRoom(
+  //   @MessageBody() data: { roomId: string },
+  //   @ConnectedSocket() client: Socket,
+  // ): Promise<void> {
+  //   let userId: string;
+
+  //   try {
+  //     userId = await this.validateTokenAndGetUserId(client);
+  //   } catch (err) {
+  //     this.logger.warn(`[join_room] Auth failed: ${err.message}`);
+  //     client.emit('room_error', { message: err.message });
+  //     return;
+  //   }
+  //   const roomId = data.roomId;
+
+  //   try {
+  //     this.logger.log(
+  //       `[join_room] Validating access to room ${roomId} for user ${userId}`,
+  //     );
+  //     await this.chatService.validateRoomAccess(roomId, userId);
+
+  //     if (!client.rooms.has(roomId)) {
+  //       client.join(roomId);
+  //       this.logger.log(
+  //         `[join_room] User ${userId} joined room ${roomId} via socket ${client.id}`,
+  //       );
+  //       const userInfo = await this.userGrpcService.getUserName(userId);
+  //       client.emit('join_room_success', {
+  //         roomId,
+  //         joinedBy: userId,
+  //         joinedByUsername: userInfo?.username,
+  //         joinedByFullName: userInfo?.fullName,
+  //       });
+  //       this.logger.log(
+  //         `User ${userId} joined room ${roomId} via socket ${client.id}`,
+  //       );
+  //     } else {
+  //       this.logger.log(`[join_room] User ${userId} already in room ${roomId}`);
+  //       client.emit('join_room_already', roomId);
+  //     }
+  //   } catch (error) {
+  //     const status =
+  //       error instanceof BadRequestException ||
+  //       error instanceof NotFoundException ||
+  //       error instanceof ForbiddenException
+  //         ? error.message
+  //         : 'Failed to join room';
+
+  //     this.logger.warn(`[join_room] Failed for user ${userId}: ${status}`);
+  //     client.emit('room_error', { message: status });
+  //   }
+  // }
+
+  @SubscribeMessage('join_or_create_room')
+  async handleJoinOrCreateRoom(
+    @MessageBody() data: { participantId: string },
     @ConnectedSocket() client: Socket,
   ): Promise<void> {
     let userId: string;
@@ -197,31 +276,61 @@ export class ChatGateway
     try {
       userId = await this.validateTokenAndGetUserId(client);
     } catch (err) {
+      this.logger.warn(`[join_or_create_room] Auth failed: ${err.message}`);
       client.emit('room_error', { message: err.message });
       return;
     }
 
+    const { participantId } = data;
+
+    if (!participantId) {
+      client.emit('room_error', { message: 'participantId is required' });
+      return;
+    }
+
     try {
-      await this.chatService.validateRoomAccess(roomId, userId);
+      const room = await this.chatService.findOrCreateConversation(
+        userId,
+        participantId,
+      );
+      const roomId = room._id.toString();
+      const userInfo = await lastValueFrom(
+        this.userServiceGrpc.GetUserName({ userId }),
+      );
 
       if (!client.rooms.has(roomId)) {
         client.join(roomId);
-        client.emit('join_room_success', roomId);
         this.logger.log(
-          `User ${userId} joined room ${roomId} via socket ${client.id}`,
+          `[join_or_create_room] User ${userId} joined room ${roomId}`,
         );
       } else {
+        this.logger.log(
+          `[join_or_create_room] User ${userId} already in room ${roomId}`,
+        );
         client.emit('join_room_already', roomId);
       }
-    } catch (error) {
-      const status =
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException ||
-        error instanceof ForbiddenException
-          ? error.message
-          : 'Failed to join room';
+      client.emit('join_room_success', {
+        roomId,
+        joinedBy: userId,
+        joinedByUsername: userInfo?.username,
+        joinedByFullName: userInfo?.fullName,
+      });
 
-      client.emit('room_error', { message: status });
+      this.logger.log('Emitting join_room_success:', {
+        roomId,
+        joinedBy: userId,
+        joinedByUsername: userInfo?.username,
+        joinedByFullName: userInfo?.fullName,
+      });
+    } catch (err) {
+      this.logger.error(
+        `[join_or_create_room] Error for user ${userId}: ${err.message}`,
+        err.stack,
+      );
+      console.error('FULL ERROR:', err);
+      client.emit('room_error', {
+        message: err.message || 'Failed to join or create room',
+      });
     }
   }
 
@@ -231,20 +340,27 @@ export class ChatGateway
     @ConnectedSocket() client: Socket,
   ): Promise<void> {
     let senderId: string;
-
     try {
       senderId = await this.validateTokenAndGetUserId(client);
+      this.logger.log(
+        `[send_message] Auth success for socket ${client.id} as user ${senderId}`,
+      );
     } catch (err) {
+      this.logger.warn(
+        `[send_message] Auth failed for socket ${client.id}: ${err.message}`,
+      );
       client.emit('error', {
         type: 'auth',
         message: err.message,
       });
       return;
     }
-
     const { receiverId, roomId, content } = data;
 
     if (![receiverId, roomId].every(isValidObjectId)) {
+      this.logger.warn(
+        `[send_message] Invalid receiverId or roomId by ${senderId}`,
+      );
       client.emit('error', {
         type: 'validation',
         message: 'Invalid receiver or room ID',
@@ -254,6 +370,9 @@ export class ChatGateway
 
     const isMember = await this.chatService.isUserInRoom(senderId, roomId);
     if (!isMember) {
+      this.logger.warn(
+        `[send_message] Unauthorized access attempt by ${senderId} to room ${roomId}`,
+      );
       client.emit('error', {
         type: 'authorization',
         message: 'Unauthorized room access',
@@ -266,8 +385,13 @@ export class ChatGateway
         ...data,
         senderId,
       });
-
-      client.emit('message_sent', savedMessage);
+      this.logger.log(
+        `[send_message] Message saved from ${senderId} to ${receiverId} in room ${roomId}`,
+      );
+      client.emit('message_sent', {
+        ...savedMessage.toObject(),
+        messageId: savedMessage._id.toString(),
+      });
 
       const receiverSockets =
         await this.redisService.getUserSockets(receiverId);
@@ -282,13 +406,22 @@ export class ChatGateway
         const updatedMessage = await this.chatService.markAsDelivered(
           savedMessage.id.toString(),
         );
+        const senderInfo = await lastValueFrom(
+          this.userServiceGrpc.GetUserName({ userId: senderId }),
+        );
 
-        const finalMessage = updatedMessage ?? savedMessage;
+        const finalMessage = {
+          ...(updatedMessage?.toObject() ??
+            savedMessage.toObject() ??
+            savedMessage),
+          senderUsername: senderInfo?.username,
+          senderFullName: senderInfo?.fullName,
+          messageId: savedMessage._id.toString(),
+        };
 
         receiverSockets.forEach((socketId) => {
           this.server.to(socketId).emit('receive_message', finalMessage);
         });
-
         this.logger.log(`Message delivered to receiver ${receiverId}`);
       }
     } catch (err) {
@@ -303,7 +436,7 @@ export class ChatGateway
   }
 
   @SubscribeMessage('message_read')
-  async handleMessagereadAck(
+  async handleMessageReadAck(
     @MessageBody() { messageId }: { messageId: string },
     @ConnectedSocket() client: Socket,
   ): Promise<void> {
@@ -348,13 +481,20 @@ export class ChatGateway
       const senderId = updated.sender?.toString();
       if (senderId) {
         const senderSockets = await this.redisService.getUserSockets(senderId);
+        const readerInfo = await lastValueFrom(
+          this.userServiceGrpc.GetUserName({ userId }),
+        );
         senderSockets.forEach((socketId) => {
           this.server.to(socketId).emit('message_read_ack', {
             messageId,
             readBy: userId,
+            readByUsername: readerInfo?.username,
+            readByFullName: readerInfo?.fullName,
             timeStamp: new Date().toISOString(),
           });
         });
+      } else {
+        this.logger.warn(`Message ${messageId} has no valid sender to notify.`);
       }
 
       client.emit('message_read_status', {
@@ -385,6 +525,7 @@ export class ChatGateway
     try {
       userId = await this.validateTokenAndGetUserId(client);
     } catch (err) {
+      this.logger.warn(`[message_delivered] Auth failed: ${err.message}`);
       client.emit('message_delivered_ack', {
         messageId,
         status: 'error',
@@ -432,14 +573,26 @@ export class ChatGateway
       }
 
       const senderId = updated.sender?.toString();
-      const senderSockets = await this.redisService.getUserSockets(senderId);
-      senderSockets.forEach((socketId) => {
-        this.server.to(socketId).emit('message_delivered', {
-          messageId,
-          deliveredBy: userId,
-          deliveredAt: new Date().toISOString(),
+      if (senderId) {
+        const senderSockets = await this.redisService.getUserSockets(senderId);
+        const receiverInfo = await lastValueFrom(
+          this.userServiceGrpc.GetUserName({ userId }),
+        );
+
+        senderSockets.forEach((socketId) => {
+          this.server.to(socketId).emit('message_delivered', {
+            messageId,
+            deliveredBy: userId,
+            deliveredByUsername: receiverInfo?.username,
+            deliveredByFullName: receiverInfo?.fullName,
+            deliveredAt: new Date().toISOString(),
+          });
         });
-      });
+      } else {
+        this.logger.warn(
+          `[message_delivered] No sender found for message ${messageId}`,
+        );
+      }
 
       client.emit('message_delivered_ack', {
         messageId,
@@ -471,6 +624,7 @@ export class ChatGateway
     try {
       userId = await this.validateTokenAndGetUserId(client);
     } catch (err) {
+      this.logger.warn(`[message_read] Auth failed: ${err.message}`);
       client.emit('message_read_status', {
         messageId,
         status: 'error',
@@ -478,7 +632,15 @@ export class ChatGateway
       });
       return;
     }
-
+    if (!messageId || !isValidObjectId(messageId)) {
+      this.logger.warn(`[message_read] Invalid messageId from user ${userId}`);
+      client.emit('message_read_status', {
+        messageId,
+        status: 'error',
+        message: 'Invalid messageId',
+      });
+      return;
+    }
     try {
       const updated = await this.chatService.markAsRead(messageId);
 
@@ -507,15 +669,23 @@ export class ChatGateway
       const senderId = updated.sender?.toString();
       if (senderId && isValidObjectId(senderId)) {
         const senderSockets = await this.redisService.getUserSockets(senderId);
+        const readerInfo = await lastValueFrom(
+          this.userServiceGrpc.GetUserName({ userId }),
+        );
         senderSockets.forEach((socketId) => {
           this.server.to(socketId).emit('message_read_ack', {
             messageId,
             readBy: userId,
+            readByUsername: readerInfo?.username,
+            readByFullName: readerInfo?.fullName,
             timeStamp: new Date().toISOString(),
           });
         });
+      } else {
+        this.logger.warn(
+          `[message_read] No valid sender for message ${messageId}`,
+        );
       }
-
       client.emit('message_read_status', {
         messageId,
         status: 'read',
@@ -543,6 +713,7 @@ export class ChatGateway
 
     try {
       userId = await this.validateTokenAndGetUserId(client);
+      console.log('userId:', userId);
     } catch (err) {
       client.emit('edit_message_status', {
         messageId: dto.messageId,
@@ -551,7 +722,15 @@ export class ChatGateway
       });
       return;
     }
-
+    if (!dto?.messageId || !isValidObjectId(dto.messageId)) {
+      this.logger.warn(`[edit_message] Invalid messageId from user ${userId}`);
+      client.emit('edit_message_status', {
+        messageId: dto.messageId,
+        status: 'error',
+        message: 'Invalid messageId',
+      });
+      return;
+    }
     try {
       const updatedMessage = await this.chatService.editMessage(
         dto.messageId,
@@ -570,6 +749,9 @@ export class ChatGateway
             editedAt: updatedMessage.editedAt,
           });
         });
+        this.logger.log(
+          `[edit_message] Notified receiver ${receiverId} about edited message ${dto.messageId}`,
+        );
       }
 
       client.emit('edit_message_status', {
@@ -602,6 +784,7 @@ export class ChatGateway
     try {
       userId = await this.validateTokenAndGetUserId(client);
     } catch (err) {
+      this.logger.warn(`[delete_message] Auth failed: ${err.message}`);
       client.emit('delete_message_status', {
         messageId: dto.messageId,
         status: 'error',
@@ -609,26 +792,24 @@ export class ChatGateway
       });
       return;
     }
-
+    if (!dto?.messageId || !isValidObjectId(dto.messageId)) {
+      this.logger.warn(`[delete_message] Invalid messageId by ${userId}`);
+      client.emit('delete_message_status', {
+        messageId: dto.messageId,
+        status: 'error',
+        message: 'Invalid messageId',
+      });
+      return;
+    }
     try {
       const maybeDeleted = await this.chatService.deleteMessage(
         dto.messageId,
         userId,
       );
 
-      if (!isDeletedMessagePayload(maybeDeleted)) {
-        client.emit('error', {
-          message:
-            'Failed to delete message. ' +
-            (typeof maybeDeleted === 'object' ? maybeDeleted.message : ''),
-        });
-        return;
-      }
-
       const deletedMessage = maybeDeleted;
-
       const receiverId = deletedMessage.receiver?.toString();
-      if (receiverId) {
+      if (receiverId && receiverId !== userId) {
         const sockets = await this.redisService.getUserSockets(receiverId);
         sockets.forEach((socketId) => {
           this.server.to(socketId).emit('message_deleted', {
@@ -636,6 +817,9 @@ export class ChatGateway
             deletedAt: deletedMessage.deletedAt,
           });
         });
+        this.logger.log(
+          `[delete_message] Notified receiver ${receiverId} for message ${dto.messageId}`,
+        );
       }
 
       client.emit('delete_message_status', {

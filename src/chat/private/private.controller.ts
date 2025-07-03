@@ -37,7 +37,7 @@ import {
 @Controller('chat')
 @UseGuards(JwtAuthGuard)
 export class ChatController {
-  private readonly logger = new Logger(Controller.name);
+  private readonly logger = new Logger(ChatController.name);
   constructor(
     private readonly chatService: ChatService,
     private readonly redisService: RedisService,

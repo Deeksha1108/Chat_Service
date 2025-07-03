@@ -26,7 +26,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get('JWT_ACCESS_SECRET') || 'dummy',
+      secretOrKey: configService.get('JWT_ACCESS_SECRET') || 'Akshita@123',
       passReqToCallback: true,
     });
     this.logger.log('[JwtStrategy] Constructed');
@@ -52,6 +52,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       const user = await lastValueFrom(
         this.authService.ValidateToken({ access_token: token }),
       );
+      console.log(user);
       this.logger.log('gRPC response read:', JSON.stringify(user, null, 2));
 
       if (!user || !user.userId) {

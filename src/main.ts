@@ -51,10 +51,10 @@ async function bootstrap() {
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup('api', app, document);
 
-    await app.listen(process.env.PORT || 3001);
-    console.log(`Server running on http://localhost:3001`);
+    await app.listen(process.env.PORT || 3010);
+    console.log(`Server running on http://localhost:3010`);
     console.log(`gRPC Server running on 0.0.0.0:50052`);
-    console.log(`Swagger available at http://localhost:3001/api`);
+    console.log(`Swagger available at http://localhost:3010/api`);
 
     const shutdown = async () => {
       logger.log('Shutting down gracefully...');

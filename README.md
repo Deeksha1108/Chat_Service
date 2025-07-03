@@ -8,7 +8,7 @@
 
 ---
 
-## 🚀 Description
+## Description
 
 This backend service is designed for real-time private messaging between users. Built with **NestJS**, it supports:
 
@@ -21,7 +21,7 @@ This backend service is designed for real-time private messaging between users. 
 
 ---
 
-## 📦 Installation
+## Installation
 
 ```bash
 npm install
@@ -29,7 +29,7 @@ npm install
 
 ---
 
-## 🔧 Running the Project
+## Running the Project
 
 ```bash
 # Start in development mode
@@ -41,7 +41,7 @@ npm run start:prod
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 - **NestJS** (Node.js Framework)
 - **MongoDB** with Mongoose
@@ -54,9 +54,9 @@ npm run start:prod
 
 ---
 
-## 📘 API Endpoints
+## API Endpoints
 
-### 🔁 Conversations
+### Conversations
 
 #### `POST /chat/conversation`
 
@@ -77,7 +77,7 @@ Fetch all conversations involving a user.
 
 ---
 
-### ✉️ Messages
+### Messages
 
 #### `POST /chat/messages`
 
@@ -117,7 +117,7 @@ Soft-delete a message (only the sender can delete their own message).
 
 ---
 
-### ✅ Delivery & Read Status
+### Delivery & Read Status
 
 #### `PATCH /chat/messages/delivered`
 
@@ -145,7 +145,7 @@ Mark all messages in a specific room as read by a user.
 
 ---
 
-### 📥 Unread & Offline
+### Unread & Offline
 
 #### `GET /chat/message/unread/:userId`
 
@@ -157,7 +157,28 @@ Retrieve offline messages stored in Redis for a user.
 
 ---
 
-## 📂 Project Structure (Key Modules)
+## Events & Payloads
+
+| Event                   | Type     | Sent/Received | Payload                     |
+| ----------------------- | -------- | ------------- | --------------------------- |
+| `connect`               | Built-in | Sent          | `auth.token`                |
+| `disconnect`            | Built-in | Received      | —                           |
+| `join_or_create_room`   | Custom   | Sent          | `{ participantId }`         |
+| `join_room_success`     | Custom   | Received      | room + user info            |
+| `send_message`          | Custom   | Sent          | messageData                 |
+| `receive_message`       | Custom   | Received      | message                     |
+| `message_delivered`     | Custom   | Sent          | `{ messageId }`             |
+| `message_delivered_ack` | Custom   | Received      | status                      |
+| `message_read`          | Custom   | Sent          | `{ messageId }`             |
+| `message_read_ack`      | Custom   | Received      | read info                   |
+| `edit_message`          | Custom   | Sent          | `{ messageId, newContent }` |
+| `edit_message_status`   | Custom   | Received      | status                      |
+| `delete_message`        | Custom   | Sent          | `{ messageId }`             |
+| `delete_message_status` | Custom   | Received      | status                      |
+
+---
+
+## Project Structure (Key Modules)
 
 ```
 chat_service/
@@ -232,12 +253,8 @@ chat_service/
 
 ---
 
-## 👨‍💻 Author
+## Author
 
 Made by [Deeksha]
 
 ---
-
-## 📄 License
-
-This project is licensed under the MIT License.

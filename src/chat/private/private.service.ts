@@ -76,13 +76,26 @@ export class ChatService {
     const participants = participantIds
       .map((id) => new Types.ObjectId(id))
       .sort((a, b) => a.toString().localeCompare(b.toString()));
-    const conv = await this.conversationModel.findOneAndUpdate(
-      { participants },
-      { $setOnInsert: { participants } },
-      { upsert: true, new: true },
-    );
-    this.logger.log('Room created or found successfully');
-    return conv;
+    try {
+      const conversation = await this.conversationModel.findOneAndUpdate(
+        {
+          'participants.0': participants[0],
+          'participants.1': participants[1],
+        },
+        { $setOnInsert: { participants } },
+        { upsert: true, new: true },
+      );
+      this.logger.log('Room created or found successfully');
+      return conversation;
+    } catch (error) {
+      this.logger.error(
+        `MongoDB error during conversation create: ${error.message}`,
+        error.stack,
+      );
+      throw new InternalServerErrorException(
+        'Could not create or find conversation',
+      );
+    }
   }
 
   async validateRoomAccess(roomId: string, userId: string): Promise<void> {
@@ -265,9 +278,9 @@ export class ChatService {
 
     const messages = await this.messageModel
       .find({ roomId: new Types.ObjectId(roomId) })
-      .sort({ createdAt: 1 })
-      .skip(skip)
-      .limit(limit)
+      .sort({ createdAt: -1 })
+      // .skip(skip)
+      // .limit(limit)
       .lean();
     return messages.map((msg) => {
       if (msg.deleted) {
@@ -349,7 +362,10 @@ export class ChatService {
     }
     const updatedMessage = await this.messageModel.findByIdAndUpdate(
       messageId,
-      { delivered: true, deliveredAt: new Date() },
+      {
+        status: 'delivered',
+        deliveredAt: new Date(),
+      },
       { new: true },
     );
 
@@ -379,9 +395,14 @@ export class ChatService {
     const result = await this.messageModel.updateMany(
       {
         _id: { $in: messageIds.map((id) => new Types.ObjectId(id)) },
-        delivered: false,
+        status: { $ne: 'delivered' },
       },
-      { $set: { delivered: true, deliveredAt: new Date() } },
+      {
+        $set: {
+          status: 'delivered',
+          deliveredAt: new Date(),
+        },
+      },
     );
     this.logger.log(
       `bulkMarkAsDelivered updated ${result.modifiedCount} messages.`,
@@ -399,7 +420,10 @@ export class ChatService {
     }
     const updatedMessage = await this.messageModel.findByIdAndUpdate(
       messageId,
-      { read: true, readAt: new Date() },
+      {
+        status: 'read',
+        readAt: new Date(),
+      },
       { new: true },
     );
 
@@ -428,10 +452,13 @@ export class ChatService {
       {
         roomId: new Types.ObjectId(roomId),
         receiver: new Types.ObjectId(userId),
-        read: false,
+        status: { $ne: 'read' },
       },
       {
-        $set: { read: true, readAt: new Date() },
+        $set: {
+          status: 'read',
+          readAt: new Date(),
+        },
       },
     );
     this.logger.log(
@@ -504,7 +531,10 @@ export class ChatService {
     return await message.save();
   }
 
-  async deleteMessage(messageId: string, requesterId: string) {
+  async deleteMessage(
+    messageId: string,
+    requesterId: string,
+  ): Promise<MessageDocument> {
     if (!isValidObjectId(messageId)) {
       throw new BadRequestException('Invalid messageId');
     }
@@ -530,14 +560,15 @@ export class ChatService {
       this.logger.log(
         `Delete called on already deleted messageId ${messageId} by user ${requesterId}`,
       );
-      return { success: false, message: 'Message already deleted' };
+      return message;
     }
 
     message.deleted = true;
+    message.deletedAt = new Date();
     await message.save();
     this.logger.log(
       `Message ${messageId} soft-deleted successfully by user ${requesterId}`,
     );
-    return { success: true, message: 'Message deleted successfully' };
+    return message;
   }
 }

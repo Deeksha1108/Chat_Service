@@ -8,6 +8,8 @@ import { Conversation, ConversationSchema } from './schema/conversation.schema';
 import { RedisModule } from 'src/chat/redis/redis.module';
 import { GrpcClientModule } from 'src/grpc/clients/grpc-clients.module';
 import { JwtStrategy } from 'src/strategies/jwt.strategy';
+import { AuthModule } from 'src/auth/auth.module';
+import { UserModule } from 'src/user/user.module';
 
 @Module({
   imports: [
@@ -17,6 +19,8 @@ import { JwtStrategy } from 'src/strategies/jwt.strategy';
     ]),
     RedisModule,
     GrpcClientModule,
+    AuthModule,
+    UserModule,
   ],
   controllers: [ChatController],
   providers: [ChatGateway, ChatService, JwtStrategy],

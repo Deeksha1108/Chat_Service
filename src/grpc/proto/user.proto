@@ -1,0 +1,274 @@
+syntax = "proto3";
+
+package user;
+
+service UserService {
+  rpc Create(CreateUserRequest) returns (UserResponse) {}
+  rpc Login(CreateUserRequest) returns (UserToken) {}
+  rpc FindAll(FindAllRequest) returns (UsersResponse) {}
+  rpc Search(SearchRequest) returns (UsersResponse) {}
+  rpc FindOne(FindOneRequest) returns (UserResponse) {}
+  rpc FindByEmail(FindByEmailRequest) returns (UserResponse) {}
+  rpc FindByUsername(FindByUsernameRequest) returns (UserResponse) {}
+  rpc Update(UpdateUserRequest) returns (UserResponse) {}
+  rpc Remove(RemoveRequest) returns (Empty) {}
+  rpc FollowRequest(FollowRequest) returns (SimpleUserResponse) {}
+  rpc AcceptFollowRequest(AcceptFollowRequest) returns (UserResponse) {}
+  rpc RejectFollowRequest(RejectFollowRequest) returns (UserResponse) {}
+  rpc Unfollow(UnfollowRequest) returns (UserResponse) {}
+  rpc GetFollowers(GetFollowersRequest) returns (UsersResponse) {}
+  rpc GetFollowing(GetFollowingRequest) returns (UsersResponse) {}
+  rpc BlockUser(BlockUserRequest) returns (UserResponse) {}
+  rpc UnblockUser(UnblockUserRequest) returns (UserResponse) {}
+  rpc ValidateUser(ValidateRequest) returns (ValidateResponse) {}
+  rpc GetUserName(GetUserNameRequest) returns (GetUserNameResponse) {}
+  rpc PrivateFollowRequest(privateFollowRequest) returns(SimpleUserResponse){}
+  rpc GetMultipleUserNames(GetMultipleUserNamesRequest) returns (GetMultipleUserNamesResponse) {}
+}
+
+service AdminService {
+  rpc BanUser(BanUserRequest) returns (UserResponse) {}
+  rpc UnbanUser(UnbanUserRequest) returns (UserResponse) {}
+}
+
+service NotificationService {
+  rpc Create(CreateNotificationRequest) returns (NotificationResponse) {}
+  rpc GetNotifications(GetNotificationsRequest) returns (NotificationsResponse) {}
+}
+
+message CreateUserNotificationRequest {
+  string userId = 1;
+  string userName = 2;
+}
+
+message GetUserNameRequest {
+  string userId = 1;
+  optional string userUsername = 2;
+}
+
+message GetUserNameResponse {
+  string fullName = 1;
+  string username = 2;
+  string mediaUrl = 3;
+}
+
+message GetMultipleUserNamesRequest {
+  repeated string userIds = 1;
+}
+
+message UserName {
+  string userId = 1;
+  string fullName = 2;
+  string username = 3;
+  string mediaUrl = 4;
+}
+
+message GetMultipleUserNamesResponse {
+  repeated UserName users = 1;
+}
+
+message ValidateRequest {
+  string id = 1;
+  optional string username = 2;
+}
+
+message ValidateResponse {
+  bool message = 1;
+}
+
+message UserToken {
+  string token = 1;
+}
+
+message CreateUserRequest {
+  string email = 1;
+  string username = 2;
+  string fullName = 3;
+  string password = 4;
+}
+
+message FindAllRequest {
+  int32 page = 1;
+  int32 limit = 2;
+}
+
+message SearchRequest {
+  string query = 1;
+  int32 page = 2;
+}
+
+message FindOneRequest {
+  string id = 1;
+  optional string username = 2;
+}
+
+message FindByEmailRequest {
+  string email = 1;
+}
+
+message FindByUsernameRequest {
+  string username = 1;
+}
+
+message UpdateUserRequest {
+  string id = 1;
+  optional string email = 2;
+  optional string username = 3;
+  optional string fullName = 4;
+  optional string password = 5;
+}
+
+message RemoveRequest {
+  string id = 1;
+  optional string username = 2;
+}
+
+message FollowRequest {
+  string userId = 1;
+  string targetId = 2;
+  optional string userUsername = 3;
+  optional string targetUsername = 4;
+  NotificationType type = 5;
+}
+
+message AcceptFollowRequest {
+  string userId = 1;
+  string requesterId = 2;
+  optional string userUsername = 3;
+  optional string requesterUsername = 4;
+}
+
+message RejectFollowRequest {
+  string userId = 1;
+  string requesterId = 2;
+  optional string userUsername = 3;
+  optional string requesterUsername = 4;
+}
+
+message UnfollowRequest {
+  string userId = 1;
+  string targetId = 2;
+  optional string userUsername = 3;
+  optional string targetUsername = 4;
+}
+
+message GetFollowersRequest {
+  string userId = 1;
+  optional string userUsername = 2;
+}
+
+message GetFollowingRequest {
+  string userId = 1;
+  optional string userUsername = 2;
+}
+
+message BlockUserRequest {
+  string currentUserId = 1;
+  string userId = 2;
+  optional string currentUserUsername = 3;
+  optional string userUsername = 4;
+}
+
+message UnblockUserRequest {
+  string currentUserId = 1;
+  string userId = 2;
+  optional string currentUserUsername = 3;
+  optional string userUsername = 4;
+}
+
+message CreateNotificationRequest {
+  string recipientId = 1;
+  string senderId = 2;
+  NotificationType type = 3;
+  string message = 4;
+  optional string recipientUsername = 5;
+  optional string senderUsername = 6;
+}
+
+message GetNotificationsRequest {
+  string userId = 1;
+  int32 page = 2;
+  int32 limit = 3;
+  optional string userUsername = 4;
+}
+
+message NotificationResponse {
+  string id = 1;
+  string recipientId = 2;
+  string senderId = 3;
+  NotificationType type = 4;
+  string message = 5;
+  bool isRead = 6;
+  string createdAt = 7;
+  string recipientUsername = 8;
+  string senderUsername = 9;
+}
+
+message NotificationsResponse {
+  repeated NotificationResponse notifications = 1;
+  int32 totalCount = 2;
+}
+
+message privateFollowRequest{
+  string userId = 1;
+  string username = 2;
+  bool type = 3;
+}
+
+message getlistpost{
+  string postId = 1;
+}
+enum NotificationType {
+  FOLLOW_REQUEST = 0;
+  NEW_FOLLOWER = 1;
+  FOLLOW_REQUEST_ACCEPTED = 2;
+  FOLLOW_REQUEST_REJECTED = 3;
+}
+
+message SimpleUserResponse {
+  string message = 1;
+  string status = 2;
+}
+
+message UsersResponse {
+  repeated UserResponse users = 1;
+  int32 totalCount = 2;
+}
+
+message BanUserRequest {
+  string adminId = 1;
+  string targetId = 2;
+  optional string reason = 3;
+  optional string adminUsername = 4;
+  optional string targetUsername = 5;
+}
+
+message UnbanUserRequest {
+  string adminId = 1;
+  string targetId = 2;
+  optional string adminUsername = 3;
+  optional string targetUsername = 4;
+}
+
+message UserResponse {
+  string id = 1;
+  string email = 2;
+  string username = 3;
+  string fullName = 4;
+  string bio = 5;
+  bool isPrivate = 6;
+  string profilePicture = 7;
+  int32 followersCount = 8;
+  int32 followingCount = 9;
+  repeated string followers = 10;
+  repeated string following = 11;
+  repeated string posts = 12;
+  repeated string blockedUsers = 13;
+  bool isBanned = 14;
+  optional string banReason = 15;
+  repeated string pendingFollowRequests = 16;
+}
+
+
+
+message Empty {}

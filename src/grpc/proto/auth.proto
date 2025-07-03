@@ -5,6 +5,9 @@ package auth;
 service AuthService {
   rpc GenerateToken (TokenPayload) returns (TokenResponse);
   rpc ValidateToken (TokenValidationRequest) returns (UserPayload);
+  rpc Logout (LogoutRequest) returns (LogoutResponse);
+  rpc GoogleSignup (GoogleSignupRequest) returns (GoogleSignupResponse);
+  rpc RegenerateAccessToken(RegenerateAccessTokenRequest) returns (RegenerateAccessTokenResponse);
 }
 
 message TokenPayload {
@@ -29,6 +32,41 @@ message UserPayload {
   string userId = 1;
   string email = 2;
   string role = 3;
-  int64 issuedAt = 4;
-  int64 expiresAt = 5;
+  string deviceId = 4;
+  int64 issuedAt = 5;
+  int64 expiresAt = 6;
+}
+
+// Request message for regenerating access token
+message RegenerateAccessTokenRequest {
+  string userId = 1;
+  string refreshToken = 2;
+  string deviceId = 3;  // optional
+}
+
+// Response message containing the new access token
+message RegenerateAccessTokenResponse {
+  string access_token = 1;
+}
+
+
+
+message LogoutRequest {
+  string userId = 1;
+  string deviceId = 2;
+}
+
+message LogoutResponse {
+  string message = 1;
+}
+
+message GoogleSignupRequest {
+  string token = 1;
+}
+
+message GoogleSignupResponse {
+  string userId = 1;
+  string email = 2;
+  string access_token = 3;
+  string refresh_token = 4;
 }

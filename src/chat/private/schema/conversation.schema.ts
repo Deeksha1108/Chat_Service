@@ -3,6 +3,7 @@ import { HydratedDocument, Types } from 'mongoose';
 
 @Schema({ timestamps: true })
 export class Conversation {
+  _id: Types.ObjectId;
   @Prop({
     type: [{ type: Types.ObjectId, ref: 'User' }],
     required: true,
